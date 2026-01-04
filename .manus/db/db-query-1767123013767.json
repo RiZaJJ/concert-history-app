@@ -1,0 +1,13 @@
+{
+  "query": "SELECT COUNT(*) as total FROM processed_files;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT COUNT(*) as total FROM processed_files;",
+  "rows": [
+    {
+      "total": "3619"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\n3619\n",
+  "stderr": "",
+  "execution_time_ms": 138
+}

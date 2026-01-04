@@ -1,0 +1,50 @@
+{
+  "query": "SELECT c.id, c.concertDate, c.artistId, c.venueId, a.name as artist, v.name as venue \nFROM concerts c \nJOIN artists a ON c.artistId = a.id \nJOIN venues v ON c.venueId = v.id \nWHERE a.name LIKE '%Slaughter Beach%' \nORDER BY c.concertDate;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT c.id, c.concertDate, c.artistId, c.venueId, a.name as artist, v.name as venue \nFROM concerts c \nJOIN artists a ON c.artistId = a.id \nJOIN venues v ON c.venueId = v.id \nWHERE a.name LIKE '%Slaughter Beach%' \nORDER BY c.concertDate;",
+  "rows": [
+    {
+      "id": "1080002",
+      "concertDate": "2023-01-11 12:00:00",
+      "artistId": "1020002",
+      "venueId": "1080002",
+      "artist": "Slaughter Beach, Dog",
+      "venue": "Triple Door"
+    },
+    {
+      "id": "1080003",
+      "concertDate": "2023-01-11 12:00:00",
+      "artistId": "1020003",
+      "venueId": "1080003",
+      "artist": "Slaughter Beach, Dog",
+      "venue": "Triple Door"
+    },
+    {
+      "id": "1080004",
+      "concertDate": "2023-01-11 12:00:00",
+      "artistId": "1020004",
+      "venueId": "1080004",
+      "artist": "Slaughter Beach, Dog",
+      "venue": "Triple Door"
+    },
+    {
+      "id": "1080005",
+      "concertDate": "2023-01-11 12:00:00",
+      "artistId": "1020005",
+      "venueId": "1080005",
+      "artist": "Slaughter Beach, Dog",
+      "venue": "Triple Door"
+    },
+    {
+      "id": "1080006",
+      "concertDate": "2023-01-11 12:00:00",
+      "artistId": "1020006",
+      "venueId": "1080006",
+      "artist": "Slaughter Beach, Dog",
+      "venue": "Triple Door"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tconcertDate\tartistId\tvenueId\tartist\tvenue\n1080002\t2023-01-11 12:00:00\t1020002\t1080002\tSlaughter Beach, Dog\tTriple Door\n1080003\t2023-01-11 12:00:00\t1020003\t1080003\tSlaughter Beach, Dog\tTriple Door\n1080004\t2023-01-11 12:00:00\t1020004\t1080004\tSlaughter Beach, Dog\tTriple Door\n1080005\t2023-01-11 12:00:00\t1020005\t1080005\tSlaughter Beach, Dog\tTriple Door\n1080006\t2023-01-11 12:00:00\t1020006\t1080006\tSlaughter Beach, Dog\tTriple Door\n",
+  "stderr": "",
+  "execution_time_ms": 139
+}

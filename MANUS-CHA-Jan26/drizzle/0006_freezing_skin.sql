@@ -1,0 +1,1 @@
+ALTER TABLE `photos` ADD `isHidden` boolean DEFAULT false NOT NULL;

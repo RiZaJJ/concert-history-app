@@ -1,0 +1,17 @@
+{
+  "query": "SELECT c.id, c.concertDate, a.name as artist, v.name as venue, v.city FROM concerts c JOIN artists a ON c.artistId = a.id JOIN venues v ON c.venueId = v.id WHERE v.name LIKE '%Temple%' ORDER BY c.concertDate DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT c.id, c.concertDate, a.name as artist, v.name as venue, v.city FROM concerts c JOIN artists a ON c.artistId = a.id JOIN venues v ON c.venueId = v.id WHERE v.name LIKE '%Temple%' ORDER BY c.concertDate DESC LIMIT 5;",
+  "rows": [
+    {
+      "id": "810001",
+      "concertDate": "2023-10-04 12:00:00",
+      "artist": "Speed of Light",
+      "venue": "Temple Theatre",
+      "city": "Tacoma"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tconcertDate\tartist\tvenue\tcity\n810001\t2023-10-04 12:00:00\tSpeed of Light\tTemple Theatre\tTacoma\n",
+  "stderr": "",
+  "execution_time_ms": 54
+}

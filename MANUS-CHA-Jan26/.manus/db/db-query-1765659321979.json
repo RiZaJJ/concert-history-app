@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, concertDate, artistId, venueId FROM concerts LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT id, concertDate, artistId, venueId FROM concerts LIMIT 5;",
+  "rows": [
+    {
+      "id": "150003",
+      "concertDate": "2024-12-31 00:00:00",
+      "artistId": "90001",
+      "venueId": "90001"
+    },
+    {
+      "id": "180001",
+      "concertDate": "2025-08-09 00:00:00",
+      "artistId": "300001",
+      "venueId": "150002"
+    },
+    {
+      "id": "210001",
+      "concertDate": "2023-02-02 19:11:08",
+      "artistId": "210001",
+      "venueId": "210001"
+    },
+    {
+      "id": "210002",
+      "concertDate": "2023-03-16 00:00:00",
+      "artistId": "210003",
+      "venueId": "150002"
+    },
+    {
+      "id": "210003",
+      "concertDate": "2023-03-16 04:10:23",
+      "artistId": "210004",
+      "venueId": "210003"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tconcertDate\tartistId\tvenueId\n150003\t2024-12-31 00:00:00\t90001\t90001\n180001\t2025-08-09 00:00:00\t300001\t150002\n210001\t2023-02-02 19:11:08\t210001\t210001\n210002\t2023-03-16 00:00:00\t210003\t150002\n210003\t2023-03-16 04:10:23\t210004\t210003\n",
+  "stderr": "",
+  "execution_time_ms": 100
+}

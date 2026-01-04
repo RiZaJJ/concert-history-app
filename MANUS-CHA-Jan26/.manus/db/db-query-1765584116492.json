@@ -1,0 +1,14 @@
+{
+  "query": "SELECT COUNT(*) as total, COUNT(DISTINCT fileId) as unique_files FROM processed_files;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT COUNT(*) as total, COUNT(DISTINCT fileId) as unique_files FROM processed_files;",
+  "rows": [
+    {
+      "total": "98",
+      "unique_files": "98"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\tunique_files\n98\t98\n",
+  "stderr": "",
+  "execution_time_ms": 68
+}

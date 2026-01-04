@@ -1,0 +1,8 @@
+{
+  "query": "SELECT s.id, s.title, se.setNumber, se.position, se.notes \nFROM songs s \nJOIN setlist_entries se ON s.id = se.songId \nJOIN concerts c ON se.concertId = c.id \nWHERE c.id = 60001 \nORDER BY se.setNumber, se.position \nLIMIT 10",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT s.id, s.title, se.setNumber, se.position, se.notes \nFROM songs s \nJOIN setlist_entries se ON s.id = se.songId \nJOIN concerts c ON se.concertId = c.id \nWHERE c.id = 60001 \nORDER BY se.setNumber, se.position \nLIMIT 10",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table '2ar9sfjru7qnjqmdqispwc.setlist_entries' doesn't exist"
+  ]
+}

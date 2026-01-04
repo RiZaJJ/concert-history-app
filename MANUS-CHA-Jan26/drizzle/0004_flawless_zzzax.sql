@@ -1,0 +1,1 @@
+ALTER TABLE `unmatched_photos` ADD `venueName` varchar(255);

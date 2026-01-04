@@ -1,0 +1,55 @@
+{
+  "query": "SELECT p.id, p.takenAt, p.latitude, p.longitude, c.concertDate, a.name as artist, v.name as venue FROM photos p JOIN concerts c ON p.concertId = c.id JOIN artists a ON c.artistId = a.id JOIN venues v ON c.venueId = v.id WHERE v.name LIKE '%Temple%' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT p.id, p.takenAt, p.latitude, p.longitude, c.concertDate, a.name as artist, v.name as venue FROM photos p JOIN concerts c ON p.concertId = c.id JOIN artists a ON c.artistId = a.id JOIN venues v ON c.venueId = v.id WHERE v.name LIKE '%Temple%' LIMIT 5;",
+  "rows": [
+    {
+      "id": "870069",
+      "takenAt": "2023-10-04 04:24:04",
+      "latitude": "47.2626944",
+      "longitude": "-122.4457944",
+      "concertDate": "2023-10-04 12:00:00",
+      "artist": "Speed of Light",
+      "venue": "Temple Theatre"
+    },
+    {
+      "id": "870070",
+      "takenAt": "2023-10-04 04:24:05",
+      "latitude": "47.26268890000001",
+      "longitude": "-122.44571669999998",
+      "concertDate": "2023-10-04 12:00:00",
+      "artist": "Speed of Light",
+      "venue": "Temple Theatre"
+    },
+    {
+      "id": "870071",
+      "takenAt": "2023-10-04 04:27:01",
+      "latitude": "47.262975",
+      "longitude": "-122.44589169999999",
+      "concertDate": "2023-10-04 12:00:00",
+      "artist": "Speed of Light",
+      "venue": "Temple Theatre"
+    },
+    {
+      "id": "870072",
+      "takenAt": "2023-10-04 04:59:09",
+      "latitude": "47.262886099999996",
+      "longitude": "-122.4456556",
+      "concertDate": "2023-10-04 12:00:00",
+      "artist": "Speed of Light",
+      "venue": "Temple Theatre"
+    },
+    {
+      "id": "870073",
+      "takenAt": "2023-10-04 05:02:09",
+      "latitude": "47.262847199999996",
+      "longitude": "-122.4455417",
+      "concertDate": "2023-10-04 12:00:00",
+      "artist": "Speed of Light",
+      "venue": "Temple Theatre"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttakenAt\tlatitude\tlongitude\tconcertDate\tartist\tvenue\n870069\t2023-10-04 04:24:04\t47.2626944\t-122.4457944\t2023-10-04 12:00:00\tSpeed of Light\tTemple Theatre\n870070\t2023-10-04 04:24:05\t47.26268890000001\t-122.44571669999998\t2023-10-04 12:00:00\tSpeed of Light\tTemple Theatre\n870071\t2023-10-04 04:27:01\t47.262975\t-122.44589169999999\t2023-10-04 12:00:00\tSpeed of Light\tTemple Theatre\n870072\t2023-10-04 04:59:09\t47.262886099999996\t-122.4456556\t2023-10-04 12:00:00\tSpeed of Light\tTemple Theatre\n870073\t2023-10-04 05:02:09\t47.262847199999996\t-122.4455417\t2023-10-04 12:00:00\tSpeed of Light\tTemple Theatre\n",
+  "stderr": "",
+  "execution_time_ms": 70
+}

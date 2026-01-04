@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, filename, sourceUrl, s3Url FROM photos WHERE concertId = 60001 LIMIT 5",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT id, filename, sourceUrl, s3Url FROM photos WHERE concertId = 60001 LIMIT 5",
+  "rows": [
+    {
+      "id": "90043",
+      "filename": "IMG_8204.JPG",
+      "sourceUrl": "https://drive.google.com/file/d/1bA907Bg5JKP-l5qoSEQg8tMDdb12q4y1/view?usp=drivesdk",
+      "s3Url": "NULL"
+    },
+    {
+      "id": "90044",
+      "filename": "IMG_8199.JPG",
+      "sourceUrl": "https://drive.google.com/file/d/1tkRt2jv02vIpr4PiyoRBZz8doSLwVZ74/view?usp=drivesdk",
+      "s3Url": "NULL"
+    },
+    {
+      "id": "90045",
+      "filename": "IMG_8203.JPG",
+      "sourceUrl": "https://drive.google.com/file/d/1hMmB0fVyaRkedVLvqW2dU54pw-DPiv0r/view?usp=drivesdk",
+      "s3Url": "NULL"
+    },
+    {
+      "id": "90046",
+      "filename": "IMG_8202.JPG",
+      "sourceUrl": "https://drive.google.com/file/d/1CXl-c3ix1yPnf8EVD0kKDDzNOOGFVsmj/view?usp=drivesdk",
+      "s3Url": "NULL"
+    },
+    {
+      "id": "90047",
+      "filename": "IMG_8201.JPG",
+      "sourceUrl": "https://drive.google.com/file/d/1clCaRpd6xpfC5lX_jsGplrj81_SXbOFt/view?usp=drivesdk",
+      "s3Url": "NULL"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfilename\tsourceUrl\ts3Url\n90043\tIMG_8204.JPG\thttps://drive.google.com/file/d/1bA907Bg5JKP-l5qoSEQg8tMDdb12q4y1/view?usp=drivesdk\tNULL\n90044\tIMG_8199.JPG\thttps://drive.google.com/file/d/1tkRt2jv02vIpr4PiyoRBZz8doSLwVZ74/view?usp=drivesdk\tNULL\n90045\tIMG_8203.JPG\thttps://drive.google.com/file/d/1hMmB0fVyaRkedVLvqW2dU54pw-DPiv0r/view?usp=drivesdk\tNULL\n90046\tIMG_8202.JPG\thttps://drive.google.com/file/d/1CXl-c3ix1yPnf8EVD0kKDDzNOOGFVsmj/view?usp=drivesdk\tNULL\n90047\tIMG_8201.JPG\thttps://drive.google.com/file/d/1clCaRpd6xpfC5lX_jsGplrj81_SXbOFt/view?usp=drivesdk\tNULL\n",
+  "stderr": "",
+  "execution_time_ms": 55
+}

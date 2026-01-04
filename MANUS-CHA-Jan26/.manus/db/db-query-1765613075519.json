@@ -1,0 +1,25 @@
+{
+  "query": "SELECT id, fileName, sourceUrl FROM unmatched_photos WHERE reviewed = 'skipped' LIMIT 3",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT id, fileName, sourceUrl FROM unmatched_photos WHERE reviewed = 'skipped' LIMIT 3",
+  "rows": [
+    {
+      "id": "210001",
+      "fileName": "IMG_3788.JPG",
+      "sourceUrl": "https://drive.google.com/uc?export=view&id=1QusQTqe5PqT9Z2YCn9qoZXa-l2CQsKxi"
+    },
+    {
+      "id": "210002",
+      "fileName": "IMG_4128.DNG",
+      "sourceUrl": "https://drive.google.com/uc?export=view&id=1PEzG4oNAgVkt4pdoiIK7marXJze3yED8"
+    },
+    {
+      "id": "210003",
+      "fileName": "IMG_8508.JPG",
+      "sourceUrl": "https://drive.google.com/uc?export=view&id=1CcDAbRC4QPD0JCnRjp56l-zT3cEf-Atw"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tfileName\tsourceUrl\n210001\tIMG_3788.JPG\thttps://drive.google.com/uc?export=view&id=1QusQTqe5PqT9Z2YCn9qoZXa-l2CQsKxi\n210002\tIMG_4128.DNG\thttps://drive.google.com/uc?export=view&id=1PEzG4oNAgVkt4pdoiIK7marXJze3yED8\n210003\tIMG_8508.JPG\thttps://drive.google.com/uc?export=view&id=1CcDAbRC4QPD0JCnRjp56l-zT3cEf-Atw\n",
+  "stderr": "",
+  "execution_time_ms": 93
+}

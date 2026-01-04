@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1767164157461,
+      "tag": "0000_rare_human_torch",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1767431254348,
+      "tag": "0001_stiff_obadiah_stane",
+      "breakpoints": true
+    }
+  ]
+}
