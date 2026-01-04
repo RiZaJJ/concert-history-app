@@ -43,3 +43,4 @@ token.json
 tmp/
 temp/
 *.tmp
+cctrace/
