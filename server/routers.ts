@@ -967,7 +967,27 @@ export const appRouter = router({
           }
         }
 
-        // SIXTH: Use OSM to find actual venue name near GPS coordinates
+        // SIXTH: Try core venue name (e.g., "The Mann Center" → "Mann")
+        if (!setlistData && venueName) {
+          const { extractCoreVenueName } = await import("./setlistMatcher");
+          const coreName = extractCoreVenueName(venueName);
+
+          if (coreName !== venueName && coreName.length >= 3) {
+            console.log(`[searchConcertsForPhoto] Trying core venue name: "${coreName}" (extracted from "${venueName}")`);
+            setlistData = await findSetlistWithAllCombinations({
+              venueName: coreName,
+              concertDate: localDate || undefined,
+              city: city || undefined,
+              latitude: latitude || undefined,
+              longitude: longitude || undefined,
+            });
+            if (setlistData) {
+              console.log(`[searchConcertsForPhoto] ✓ Found match with core venue name "${coreName}"!`);
+            }
+          }
+        }
+
+        // SEVENTH: Use OSM to find actual venue name near GPS coordinates
         if (!setlistData && latitude && longitude) {
           console.log(`[searchConcertsForPhoto] Trying OSM venue detection...`);
           try {
@@ -1022,7 +1042,8 @@ export const appRouter = router({
           console.log(`    3. Simplified name (removed suffixes)`);
           console.log(`    4. Common venue suffixes (Amphitheatre, Lounge, etc.)`);
           console.log(`    5. Without city filter`);
-          console.log(`    6. OSM-detected venue names`);
+          console.log(`    6. Core venue name (e.g., "The Mann Center" → "Mann")`);
+          console.log(`    7. OSM-detected venue names`);
           console.log(`  Possible reasons:`);
           console.log(`    - Concert not in Setlist.fm database`);
           console.log(`    - Venue name significantly different from Setlist.fm`);
