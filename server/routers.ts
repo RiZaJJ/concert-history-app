@@ -368,6 +368,41 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    markIncorrect: protectedProcedure
+      .input(z.object({ concertId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const concert = await db.getConcertById(input.concertId);
+        if (!concert || concert.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Concert not found" });
+        }
+
+        // Get all photos for this concert
+        const photos = await db.getPhotoByConcertId(input.concertId);
+
+        // Move each photo back to unmatched_photos
+        for (const photo of photos) {
+          await db.createUnmatchedPhoto({
+            userId: ctx.user.id,
+            driveFileId: photo.driveFileId || `photo_${photo.id}`,
+            fileName: `photo_${photo.id}.jpg`, // We don't have the original filename
+            takenAt: photo.takenAt || new Date(),
+            latitude: photo.latitude?.toString(),
+            longitude: photo.longitude?.toString(),
+            city: concert.venue?.city,
+            state: concert.venue?.state,
+            venueName: concert.venue?.name,
+          });
+
+          // Delete the photo from photos table
+          await db.deletePhoto(photo.id);
+        }
+
+        // Delete the concert
+        await db.deleteConcert(input.concertId);
+
+        return { success: true, photosUnmarked: photos.length };
+      }),
+
     merge: protectedProcedure
       .input(z.object({
         sourceConcertId: z.number(),
@@ -734,7 +769,14 @@ export const appRouter = router({
         }
 
         const venueName = input.venueName || unmatchedPhoto.venueName;
-        const city = unmatchedPhoto.city;
+        let city = unmatchedPhoto.city;
+
+        // Skip city field if "county" appears in the city name - use venue + date only
+        if (city && city.toLowerCase().includes('county')) {
+          console.log(`[searchConcertsForPhoto] City contains "county" (${city}) - skipping city filter, searching with venue + date only`);
+          city = undefined;
+        }
+
         const takenAt = unmatchedPhoto.takenAt ? new Date(unmatchedPhoto.takenAt) : null;
         const latitude = unmatchedPhoto.latitude;
         const longitude = unmatchedPhoto.longitude;
@@ -743,7 +785,7 @@ export const appRouter = router({
         console.log(`  Photo: ${unmatchedPhoto.fileName}`);
         console.log(`  Artist: "${input.artistName || 'N/A'}"`);
         console.log(`  Venue: "${venueName || 'N/A'}"`);
-        console.log(`  City: "${city || 'N/A'}"`);
+        console.log(`  City: "${city || 'N/A (skipped)'}"`);
         console.log(`  Date: ${takenAt ? takenAt.toISOString().split('T')[0] : 'N/A'}`);
         console.log(`  GPS: ${latitude && longitude ? `${latitude}, ${longitude}` : 'N/A'}`);
 

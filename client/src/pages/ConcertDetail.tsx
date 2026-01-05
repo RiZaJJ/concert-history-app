@@ -21,7 +21,8 @@ import {
   Square,
   Edit,
   Info,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react";
 import { toast } from "sonner";
 import { VenueDropdown } from "@/components/VenueDropdown";
@@ -128,7 +129,20 @@ export default function ConcertDetail() {
       toast.error(`Failed to delete concert: ${error.message}`);
     },
   });
-  
+
+  const markIncorrect = trpc.concerts.markIncorrect.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Concert marked incorrect`, {
+        description: `${result.photosUnmarked} photo(s) moved back to review queue`,
+        duration: 5000,
+      });
+      setLocation("/");
+    },
+    onError: (error) => {
+      toast.error(`Failed to mark concert: ${error.message}`);
+    },
+  });
+
   const mergeConcerts = trpc.concerts.merge.useMutation({
     onSuccess: (result) => {
       toast.success(`Merged successfully! Moved ${result.movedPhotos} photos${result.copiedSetlist ? ' and copied setlist' : ''}.`);
@@ -317,6 +331,18 @@ export default function ConcertDetail() {
                 onClick={() => setShowMergeDialog(true)}
               >
                 Merge
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (confirm(`Mark this concert as incorrect? This will move all ${photos?.length || 0} photo(s) back to the review queue and delete this concert.`)) {
+                    markIncorrect.mutate({ concertId: concert.id });
+                  }
+                }}
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                This is incorrect
               </Button>
               <Button
                 variant="destructive"
