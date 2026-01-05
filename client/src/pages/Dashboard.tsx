@@ -38,6 +38,7 @@ export default function Dashboard() {
   const { data: concerts, isLoading: concertsLoading } = trpc.concerts.list.useQuery(undefined, { enabled: !!user });
   const { data: unmatchedCount } = trpc.photos.getUnmatchedCount.useQuery(undefined, { enabled: !!user });
   const { data: noGpsCount } = trpc.photos.getNoGpsCount.useQuery(undefined, { enabled: !!user });
+  const { data: ambiguousCount } = trpc.photos.getAmbiguousCount.useQuery(undefined, { enabled: !!user });
   const { data: lastScanResult } = trpc.photos.getLastScanResult.useQuery(undefined, { enabled: !!user });
   const { data: scanProgress } = trpc.photos.getScanProgress.useQuery(undefined, { enabled: isScanning, refetchInterval: 500 });
   const { data: scanStats } = trpc.photos.getScanStats.useQuery(undefined, { enabled: !!user });
@@ -50,6 +51,7 @@ export default function Dashboard() {
       setIsScanning(false);
       utils.concerts.list.invalidate();
       utils.photos.getUnmatchedCount.invalidate();
+      utils.photos.getAmbiguousCount.invalidate();
       utils.photos.getScanStats.invalidate();
       utils.photos.getLastScanResult.invalidate();
 
@@ -95,6 +97,7 @@ export default function Dashboard() {
       // Refresh all queries
       utils.concerts.list.invalidate();
       utils.photos.getUnmatchedCount.invalidate();
+      utils.photos.getAmbiguousCount.invalidate();
       utils.photos.getScanStats.invalidate();
       utils.photos.getLastScanResult.invalidate();
 
@@ -218,6 +221,14 @@ export default function Dashboard() {
             <Link href="/photos/review">
               <Button variant="secondary">Review ({unmatchedCount || 0})</Button>
             </Link>
+
+            {ambiguousCount && ambiguousCount > 0 && (
+              <Link href="/photos/ambiguous">
+                <Button variant="outline" className="border-orange-500 text-orange-600 hover:bg-orange-50">
+                  Ambiguous ({ambiguousCount})
+                </Button>
+              </Link>
+            )}
 
             {noGpsCount && noGpsCount > 0 && (
               <Link href="/photos/review/no-gps">
