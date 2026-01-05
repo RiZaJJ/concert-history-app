@@ -81,7 +81,7 @@ export default function Dashboard() {
     onSuccess: () => {
       toast.success("History cleared. Scanning selected batch...");
       utils.photos.getScanStats.invalidate();
-      scanPhotos.mutate({ limit: scanLimit });
+      scanPhotos.mutate({ limit: scanLimit || undefined });
     }
   });
 
@@ -177,8 +177,9 @@ export default function Dashboard() {
                 className="bg-transparent text-sm p-1 outline-none"
               >
                 {[1, 5, 10, 25, 50, 100, 250, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
+                <option value={0}>All files</option>
               </select>
-              <Button size="sm" onClick={() => scanPhotos.mutate({ limit: scanLimit })} disabled={isScanning}>
+              <Button size="sm" onClick={() => scanPhotos.mutate({ limit: scanLimit || undefined })} disabled={isScanning}>
                 {isScanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
                 Scan
               </Button>
@@ -237,7 +238,7 @@ export default function Dashboard() {
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
                     <span className="font-medium">
-                      Scanning photo {scanProgress?.currentPhoto || 0} of {scanProgress?.totalPhotos || scanLimit}
+                      Scanning photo {scanProgress?.currentPhoto || 0} of {scanProgress?.totalPhotos || (scanLimit === 0 ? 'all' : scanLimit)}
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
