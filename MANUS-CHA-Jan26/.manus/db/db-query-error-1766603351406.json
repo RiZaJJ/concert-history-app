@@ -1,8 +1,0 @@
-{
-  "query": "SELECT c.id, c.date, a.name as artist, v.name as venue, v.city FROM concerts c JOIN artists a ON c.artist_id = a.id JOIN venues v ON c.venue_id = v.id WHERE v.name LIKE '%Temple%' ORDER BY c.date DESC LIMIT 5;",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user djpr1b4mneSXJyA.root --database 2Ar9sFJRu7qNJQmDqiSPwc --execute SELECT c.id, c.date, a.name as artist, v.name as venue, v.city FROM concerts c JOIN artists a ON c.artist_id = a.id JOIN venues v ON c.venue_id = v.id WHERE v.name LIKE '%Temple%' ORDER BY c.date DESC LIMIT 5;",
-  "returncode": 1,
-  "logs": [
-    "ERROR 1054 (42S22) at line 1: Unknown column 'c.artist_id' in 'on clause'"
-  ]
-}

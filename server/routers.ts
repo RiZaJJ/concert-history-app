@@ -377,7 +377,7 @@ export const appRouter = router({
         }
 
         // Get all photos for this concert
-        const photos = await db.getPhotoByConcertId(input.concertId);
+        const photos = await db.getConcertPhotos(input.concertId);
 
         // Move each photo back to unmatched_photos
         for (const photo of photos) {
