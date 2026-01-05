@@ -1286,26 +1286,15 @@ export const appRouter = router({
             });
           }
 
-          // STEP 2: If we have cached venues, return them
-          if (allVenues.length > 0) {
-            // Sort by distance
-            allVenues.sort((a, b) => a.distance - b.distance);
-
-            console.log('[getNearbyVenues] Returning cached venues:');
-            allVenues.forEach((v, i) => console.log(`  ${i + 1}. ${v.name} (${v.distance}m) [${v.types.join(', ')}]`));
-
-            return allVenues;
-          }
-
-          // STEP 3: No cached venues found, query OSM
+          // STEP 2: ALWAYS query OSM to find venues not yet cached
           const { reverseGeocode } = await import("./integrations");
-          console.log('[getNearbyVenues] No venues found yet, querying OSM as fallback...');
+          console.log(`[getNearbyVenues] Querying OSM for fresh venue list (${dbVenues.length} already cached)...`);
           const { findOSMVenues } = await import("./osmVenueDetection");
 
           const osmVenues = await findOSMVenues(input.latitude, input.longitude, 1200); // 1200 meters
 
-          if (osmVenues.length === 0) {
-            console.log('[getNearbyVenues] No OSM venues found either');
+          if (osmVenues.length === 0 && allVenues.length === 0) {
+            console.log('[getNearbyVenues] No venues found in cache or OSM');
             return [];
           }
 
@@ -1347,12 +1336,7 @@ export const appRouter = router({
 
           console.log(`[getNearbyVenues] ${validatedVenues.length}/${osmVenues.length} venues validated`);
 
-          if (validatedVenues.length === 0) {
-            console.log('[getNearbyVenues] No validated venues found');
-            return [];
-          }
-
-          // STEP 5: Cache validated OSM venues to database for future lookups
+          // STEP 5: Cache validated OSM venues to database for future lookups (if any)
           console.log(`[getNearbyVenues] Caching ${validatedVenues.length} validated venues to database...`);
 
           // Get city/state/country from reverse geocoding
@@ -1383,17 +1367,32 @@ export const appRouter = router({
 
           console.log(`[getNearbyVenues] Successfully cached ${cachedVenues.length}/${validatedVenues.length} venues`);
 
-          // STEP 6: Return the cached venues
-          return cachedVenues.map(v => ({
+          // STEP 6: Merge previously cached venues with newly cached OSM venues
+          const newVenues = cachedVenues.map(v => ({
             name: v.name,
             types: [v.osmMatchedTag || 'venue'],
             score: 100 - (v.osmDistance || 0),
+            distance: v.osmDistance || 0,
             city: v.city,
             state: v.state,
             country: v.country,
             latitude: v.latitude || '',
             longitude: v.longitude || '',
           }));
+
+          // Add new venues to existing cached venues (avoid duplicates)
+          const venueNames = new Set(allVenues.map(v => v.name.toLowerCase()));
+          newVenues.forEach(v => {
+            if (!venueNames.has(v.name.toLowerCase())) {
+              allVenues.push(v);
+            }
+          });
+
+          // Sort by distance (closest first)
+          allVenues.sort((a, b) => a.distance - b.distance);
+
+          console.log(`[getNearbyVenues] Returning ${allVenues.length} total venues (${dbVenues.length} from cache, ${newVenues.length} from OSM)`);
+          return allVenues;
 
         } catch (error) {
           console.error('[getNearbyVenues] Error:', error);
