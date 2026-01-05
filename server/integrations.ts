@@ -392,24 +392,29 @@ export async function searchSetlistsByDateAndLocation(
 
       console.log(`\n  Fuzzy match result: ${filteredSetlists.length}/${response.data.setlist?.length || 0} concerts matched venue name`);
 
-      // FALLBACK: If no matches, try matching with just the first word of the venue name
+      // FALLBACK: If no matches, try matching with first SIGNIFICANT word (skip "The", "A", etc.)
       if (filteredSetlists.length === 0 && venueName) {
-        const firstWord = venueName.split(/\s+/)[0]; // Extract first word
-        console.log(`\n  No fuzzy matches found. Trying fallback: first word only ("${firstWord}")`);
+        const words = venueName.split(/\s+/);
+        const commonWords = ['the', 'a', 'an', 'at'];
+        const firstSignificantWord = words.find(w => !commonWords.includes(w.toLowerCase())) || words[0];
+
+        console.log(`\n  No fuzzy matches found. Trying fallback: first significant word ("${firstSignificantWord}")`);
 
         const partialMatches = (response.data.setlist || []).filter((setlist: any) => {
           if (!setlist.venue?.name) return false;
 
-          // Check if venue name contains the first word (case-insensitive)
+          // Check if venue name contains the significant word (case-insensitive, minimum 3 chars)
+          if (firstSignificantWord.length < 3) return false;
+
           const venueNameLower = setlist.venue.name.toLowerCase();
-          const firstWordLower = firstWord.toLowerCase();
+          const firstWordLower = firstSignificantWord.toLowerCase();
 
           const contains = venueNameLower.includes(firstWordLower);
-          console.log(`[Partial Match] "${setlist.venue.name}" contains "${firstWord}": ${contains ? '✓' : '✗'}`);
+          console.log(`[Partial Match] "${setlist.venue.name}" contains "${firstSignificantWord}": ${contains ? '✓' : '✗'}`);
           return contains;
         });
 
-        console.log(`\n  Partial match result: ${partialMatches.length}/${response.data.setlist?.length || 0} concerts contain "${firstWord}"`);
+        console.log(`\n  Partial match result: ${partialMatches.length}/${response.data.setlist?.length || 0} concerts contain "${firstSignificantWord}"`);
 
         if (partialMatches.length > 0) {
           filteredSetlists = partialMatches;
@@ -559,24 +564,29 @@ export async function searchSetlistsByDateAndCity(
 
       console.log(`[Venue Filter] ${matchingSetlists.length}/${setlists.length} setlists matched venue`);
 
-      // FALLBACK: If no matches, try matching with just the first word of the venue name
+      // FALLBACK: If no matches, try matching with first SIGNIFICANT word (skip "The", "A", etc.)
       if (matchingSetlists.length === 0 && venueName) {
-        const firstWord = venueName.split(/\s+/)[0]; // Extract first word
-        console.log(`\n  No fuzzy matches found. Trying fallback: first word only ("${firstWord}")`);
+        const words = venueName.split(/\s+/);
+        const commonWords = ['the', 'a', 'an', 'at'];
+        const firstSignificantWord = words.find(w => !commonWords.includes(w.toLowerCase())) || words[0];
+
+        console.log(`\n  No fuzzy matches found. Trying fallback: first significant word ("${firstSignificantWord}")`);
 
         const partialMatches = setlists.filter((setlist: any) => {
           if (!setlist.venue?.name) return false;
 
-          // Check if venue name contains the first word (case-insensitive)
+          // Check if venue name contains the significant word (case-insensitive, minimum 3 chars)
+          if (firstSignificantWord.length < 3) return false;
+
           const venueNameLower = setlist.venue.name.toLowerCase();
-          const firstWordLower = firstWord.toLowerCase();
+          const firstWordLower = firstSignificantWord.toLowerCase();
 
           const contains = venueNameLower.includes(firstWordLower);
-          console.log(`[Partial Match] "${setlist.venue.name}" contains "${firstWord}": ${contains ? '✓' : '✗'}`);
+          console.log(`[Partial Match] "${setlist.venue.name}" contains "${firstSignificantWord}": ${contains ? '✓' : '✗'}`);
           return contains;
         });
 
-        console.log(`\n  Partial match result: ${partialMatches.length}/${setlists.length} concerts contain "${firstWord}"`);
+        console.log(`\n  Partial match result: ${partialMatches.length}/${setlists.length} concerts contain "${firstSignificantWord}"`);
 
         if (partialMatches.length > 0) {
           matchingSetlists = partialMatches;
