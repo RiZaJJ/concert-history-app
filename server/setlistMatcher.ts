@@ -47,18 +47,79 @@ export async function findSetlistWithAllCombinations(params: {
     });
   }
   
-  // 4. City + Date + Venue (when GPS not available but city is known)
-  // This is the fallback when we only have venue name and date without GPS
+  // 4. City + Date + Venue (when city is known)
+  // Pass GPS if available to disambiguate venues with similar names
   if (venueName && concertDate && !artistName && city) {
     attempts.push({
-      name: "City + Date + Venue (no GPS)",
+      name: "City + Date + Venue" + (latitude && longitude ? " (with GPS)" : " (no GPS)"),
       fn: async () => {
-        const result = await searchSetlistsByDateAndCity(concertDate, city, venueName);
+        const result = await searchSetlistsByDateAndCity(concertDate, city, venueName, latitude, longitude);
         return result;
       },
     });
   }
-  
+
+  // 5. FALLBACK: Venue + Date (no GPS, no city) - search entire setlist.fm database
+  // This handles cases where GPS is invalid (0,0) or city is unknown
+  // Always add this as a last resort if we have venue and date
+  if (venueName && concertDate && !artistName) {
+    attempts.push({
+      name: "Venue + Date (no GPS or city - global search)",
+      fn: async () => {
+        // Use fetchSetlistByDateAndVenue but without artist (will search all artists)
+        // This is less accurate but works when we have no location data
+        const { searchSetlistsByDateAndCity } = await import("./integrations");
+
+        // Try searching with venue name + date using setlist.fm's built-in venue search
+        // We can't use a specific city, so we'll get all results and rely on fuzzy matching
+        console.log(`[SetlistMatcher] Searching setlist.fm with venue="${venueName}" and date (no location filter)`);
+
+        // Format date for setlist.fm API (DD-MM-YYYY)
+        const day = String(concertDate.getDate()).padStart(2, '0');
+        const month = String(concertDate.getMonth() + 1).padStart(2, '0');
+        const year = concertDate.getFullYear();
+        const dateStr = `${day}-${month}-${year}`;
+
+        // Direct API call without city filter
+        const axios = (await import('axios')).default;
+        const apiKey = process.env.SETLISTFM_API_KEY;
+        if (!apiKey) throw new Error("SETLISTFM_API_KEY not configured");
+
+        // Send first word of venue to API
+        const firstWord = venueName.split(/\s+/)[0];
+
+        try {
+          await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit
+          const response = await axios.get("https://api.setlist.fm/rest/1.0/search/setlists", {
+            headers: { "x-api-key": apiKey, "Accept": "application/json" },
+            params: { date: dateStr, venueName: firstWord, p: 1 },
+            timeout: 15000,
+          });
+
+          const setlists = response.data.setlist || [];
+          console.log(`[SetlistMatcher] Global venue search found ${setlists.length} result(s)`);
+
+          if (setlists.length > 0) {
+            // Apply fuzzy matching to find best venue match
+            const { isFuzzyVenueMatch } = await import("./fuzzyMatch");
+            const matches = setlists.filter((s: any) =>
+              s.venue?.name && isFuzzyVenueMatch(venueName, s.venue.name, 70)
+            );
+
+            if (matches.length > 0) {
+              console.log(`[SetlistMatcher] Found ${matches.length} fuzzy match(es): ${matches.map((m: any) => m.venue?.name).join(', ')}`);
+              return matches[0]; // Return first match
+            }
+          }
+        } catch (error: any) {
+          console.error(`[SetlistMatcher] Global venue search failed:`, error.message);
+        }
+
+        return null;
+      },
+    });
+  }
+
   // Try each combination in order until we find a match
   for (const attempt of attempts) {
     try {

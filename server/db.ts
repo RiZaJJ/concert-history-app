@@ -3,6 +3,7 @@ import mysql from "mysql2/promise";
 import * as schema from "../drizzle/schema";
 import { eq, and, desc, sql, like, or, isNull, isNotNull } from "drizzle-orm";
 import { logDbRead, logDbWrite } from "./logger";
+import { dateToNoonUTC } from "./dateUtils";
 
 let connection: mysql.Connection | null = null;
 
@@ -165,6 +166,7 @@ export async function findVenuesNearCoordinates(latitude: string, longitude: str
  */
 export async function cacheOSMVenue(osmVenue: {
   name: string;
+  altName?: string;
   latitude: string;
   longitude: string;
   city?: string;
@@ -177,9 +179,10 @@ export async function cacheOSMVenue(osmVenue: {
   // Check if venue already exists nearby (within 100 meters = 0.062 miles)
   const existingVenues = await findVenuesNearCoordinates(osmVenue.latitude, osmVenue.longitude, 0.062);
 
-  // Find exact match by name
+  // Find exact match by name or altName
   const exactMatch = existingVenues.find(v =>
-    v.name.toLowerCase().trim() === osmVenue.name.toLowerCase().trim()
+    v.name.toLowerCase().trim() === osmVenue.name.toLowerCase().trim() ||
+    (osmVenue.altName && v.name.toLowerCase().trim() === osmVenue.altName.toLowerCase().trim())
   );
 
   if (exactMatch) {
@@ -188,10 +191,12 @@ export async function cacheOSMVenue(osmVenue: {
   }
 
   // Create new venue
-  console.log(`[Venue Cache] Caching new venue: "${osmVenue.name}" at ${osmVenue.latitude}, ${osmVenue.longitude}`);
+  const altInfo = osmVenue.altName ? ` [alt: "${osmVenue.altName}"]` : '';
+  console.log(`[Venue Cache] Caching new venue: "${osmVenue.name}"${altInfo} at ${osmVenue.latitude}, ${osmVenue.longitude}`);
 
   const newVenue = await createVenue({
     name: osmVenue.name,
+    altName: osmVenue.altName,
     city: osmVenue.city || 'Unknown',
     state: osmVenue.state,
     country: osmVenue.country || 'Unknown',
@@ -380,6 +385,42 @@ export async function getUnmatchedCount(userId: number) {
     );
   const count = results[0]?.count || 0;
   logDbRead('unmatchedPhotos', 'getUnmatchedCount', `userId=${userId}`, count, userId);
+  return count;
+}
+
+export async function getNoGpsPhotos(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Fetch photos without GPS that are pending review
+  const results = await db.select().from(schema.unmatchedPhotos).where(
+    and(
+      eq(schema.unmatchedPhotos.userId, userId),
+      eq(schema.unmatchedPhotos.noGps, 1),
+      eq(schema.unmatchedPhotos.reviewed, "pending")
+    )
+  ).orderBy(desc(schema.unmatchedPhotos.takenAt));
+
+  logDbRead('unmatchedPhotos', 'getNoGpsPhotos', `userId=${userId}`, results.length, userId);
+  return results;
+}
+
+export async function getNoGpsPhotosCount(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const results = await db.select({ count: sql<number>`count(*)` })
+    .from(schema.unmatchedPhotos)
+    .where(
+      and(
+        eq(schema.unmatchedPhotos.userId, userId),
+        eq(schema.unmatchedPhotos.noGps, 1),
+        eq(schema.unmatchedPhotos.reviewed, "pending")
+      )
+    );
+
+  const count = results[0]?.count || 0;
+  logDbRead('unmatchedPhotos', 'getNoGpsPhotosCount', `userId=${userId}`, count, userId);
   return count;
 }
 
@@ -870,14 +911,25 @@ export async function deleteAllData(userId: number) {
   const userUnmatched = await db.select({ id: schema.unmatchedPhotos.id }).from(schema.unmatchedPhotos).where(eq(schema.unmatchedPhotos.userId, userId));
   const userProcessed = await db.select({ id: schema.processedFiles.id }).from(schema.processedFiles).where(eq(schema.processedFiles.userId, userId));
 
+  // Delete all concerts (which also deletes setlists)
   for (const concert of userConcerts) {
     await deleteConcert(concert.id);
   }
+
+  // Delete all user-specific data
   await db.delete(schema.photos).where(eq(schema.photos.userId, userId));
   await db.delete(schema.unmatchedPhotos).where(eq(schema.unmatchedPhotos.userId, userId));
   await db.delete(schema.processedFiles).where(eq(schema.processedFiles.userId, userId));
+  await db.delete(schema.venueAliases).where(eq(schema.venueAliases.userId, userId));
+  await db.delete(schema.scanCache).where(eq(schema.scanCache.userId, userId));
 
-  logDbWrite('ALL', 'DELETE', `Deleted all data for user ${userId}`, true, userId);
+  // Delete ALL shared data (fresh cache on next scan)
+  // These are shared across users but we clear them for a complete reset
+  await db.delete(schema.venues);
+  await db.delete(schema.artists);
+  await db.delete(schema.songs);
+
+  logDbWrite('ALL', 'DELETE', `Deleted all data for user ${userId} (including all caches: venues, artists, songs, venueAliases, scanCache)`, true, userId);
   return { concerts: userConcerts.length, photos: userPhotos.length, unmatchedPhotos: userUnmatched.length, processedFiles: userProcessed.length };
 }
 

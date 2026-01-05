@@ -83,29 +83,71 @@ The following API credentials are required:
    - Open your Google Drive folder in a browser
    - Copy the folder ID from the URL: `https://drive.google.com/drive/folders/YOUR_FOLDER_ID_HERE`
 
-### Installation
+### Quick Installation
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
+**Option 1: One-Line Install (Recommended)**
 
-3. Configure environment variables (already set up in Manus platform):
-   - `SETLISTFM_API_KEY`
-   - `OPENWEATHER_API_KEY`
-   - `GOOGLE_DRIVE_CREDENTIALS` (JSON string)
-   - `GOOGLE_DRIVE_FOLDER_ID`
+```bash
+curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/concert-history-app/main/install.sh | bash
+```
 
-4. Push database schema:
-   ```bash
-   pnpm db:push
-   ```
+This will:
+- Clone the repository to `~/concert-history-app`
+- Install all dependencies
+- Create the database
+- Run all migrations
+- Set up your `.env` file
 
-5. Start development server:
-   ```bash
-   pnpm dev
-   ```
+**Option 2: Manual Installation**
+
+```bash
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/concert-history-app.git
+cd concert-history-app
+
+# Run automated setup
+pnpm install
+pnpm setup
+
+# Or manually:
+# 1. Copy environment template
+cp .env.example .env
+
+# 2. Edit .env with your API keys
+nano .env
+
+# 3. Create database and run migrations
+mysql -u root -e "CREATE DATABASE concert_history;"
+pnpm db:migrate
+
+# 4. Create default user
+mysql -u root concert_history -e "INSERT INTO users (id, name, email, googleId) VALUES (1, 'User', 'user@localhost', 'local-user');"
+```
+
+### Configuration
+
+Edit `.env` and add your API keys:
+
+```env
+# Database
+DATABASE_URL=mysql://root@localhost:3306/concert_history
+
+# API Keys (get your own from the respective services)
+SETLISTFM_API_KEY=your_setlistfm_api_key_here
+OPENWEATHER_API_KEY=your_openweather_api_key_here
+
+# Google Drive (optional - for photo scanning)
+GOOGLE_DRIVE_CREDENTIALS={"type":"service_account",...}
+GOOGLE_DRIVE_FOLDER_ID=your_google_drive_folder_id_here
+```
+
+### Start the App
+
+```bash
+pnpm dev
+```
+
+Open http://localhost:5173 in your browser.
 
 ## Usage
 

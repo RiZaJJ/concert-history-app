@@ -252,8 +252,8 @@ export const appRouter = router({
               city = setlistData.venue.city?.name || city;
               state = setlistData.venue.city?.state || state;
               country = setlistData.venue.city?.country?.code || country;
-              latitude = setlistData.venue.city?.coords?.lat?.toString() || latitude;
-              longitude = setlistData.venue.city?.coords?.long?.toString() || longitude;
+              // NOTE: Do NOT use setlist.fm GPS coordinates - they're often inaccurate
+              // Keep existing lat/lon from user input or existing venue only
 
               // Find or create artist from setlist.fm
               let artist = await db.findArtistByName(artistName);
@@ -391,6 +391,12 @@ export const appRouter = router({
     deleteAllData: protectedProcedure
       .mutation(async ({ ctx }) => {
         const stats = await db.deleteAllData(ctx.user.id);
+
+        // Clear ALL in-memory caches
+        const { clearScanProgress, clearLastScanResult } = await import('./scanProgress');
+        clearScanProgress(ctx.user.id);
+        clearLastScanResult(ctx.user.id);
+
         return { success: true, ...stats };
       }),
   }),
@@ -408,7 +414,15 @@ export const appRouter = router({
 
     getUnmatchedCount: protectedProcedure.query(async ({ ctx }) => {
       // Corrected: Using ctx.user.id instead of undefined userId
-      return await db.getUnmatchedCount(ctx.user.id); 
+      return await db.getUnmatchedCount(ctx.user.id);
+    }),
+
+    getNoGpsPhotos: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getNoGpsPhotos(ctx.user.id);
+    }),
+
+    getNoGpsCount: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getNoGpsPhotosCount(ctx.user.id);
     }),
 
     matchUnmatched: protectedProcedure
@@ -733,6 +747,14 @@ export const appRouter = router({
         console.log(`  Date: ${takenAt ? takenAt.toISOString().split('T')[0] : 'N/A'}`);
         console.log(`  GPS: ${latitude && longitude ? `${latitude}, ${longitude}` : 'N/A'}`);
 
+        // Convert UTC timestamp to Pacific Time before searching
+        let localDate = takenAt;
+        if (takenAt) {
+          // Subtract 8 hours to convert from UTC to PST (Seattle timezone)
+          localDate = new Date(takenAt.getTime() - (8 * 60 * 60 * 1000));
+          console.log(`[searchConcertsForPhoto] UTC date: ${takenAt.toISOString()}, Local date (PST): ${localDate.toISOString().split('T')[0]}`);
+        }
+
         // If artist name provided, search by artist + date first
         let setlistData;
         if (input.artistName) {
@@ -743,7 +765,7 @@ export const appRouter = router({
           // The whole point is to bypass bad/missing GPS data
           setlistData = await fetchSetlistByArtistAndDate(
             input.artistName,
-            takenAt || new Date(),
+            localDate || new Date(),
             undefined, // Don't filter by GPS latitude
             undefined  // Don't filter by GPS longitude
           );
@@ -773,22 +795,166 @@ export const appRouter = router({
         }
 
         // Fallback to venue-based search
+        // FIRST: Try primary venue name
         setlistData = await findSetlistWithAllCombinations({
           venueName: venueName || undefined,
-          concertDate: takenAt || undefined,
+          concertDate: localDate || undefined,
           city: city || undefined,
           latitude: latitude || undefined,
           longitude: longitude || undefined,
         });
 
+        // SECOND: If no match and venue exists in DB with alt_name, try alt_name
+        if (!setlistData && venueName && city) {
+          const venueInDb = await db.findVenueByNameAndCity(venueName, city);
+          if (venueInDb?.altName) {
+            console.log(`[searchConcertsForPhoto] No match with "${venueName}", trying alt_name: "${venueInDb.altName}"`);
+            setlistData = await findSetlistWithAllCombinations({
+              venueName: venueInDb.altName,
+              concertDate: localDate || undefined,
+              city: city || undefined,
+              latitude: latitude || undefined,
+              longitude: longitude || undefined,
+            });
+            if (setlistData) {
+              console.log(`[searchConcertsForPhoto] ✓ Found match using alt_name "${venueInDb.altName}"!`);
+            }
+          }
+        }
+
+        // THIRD: If still no match, try simplified name (remove "at the...", "@ the...", etc.)
+        if (!setlistData && venueName) {
+          const simplifiedName = venueName
+            .replace(/\s+(at|@)\s+(the\s+)?[\w\s]+$/i, '') // Remove "at the Market", "@ The Venetian", etc.
+            .trim();
+
+          if (simplifiedName !== venueName && simplifiedName.length > 0) {
+            console.log(`[searchConcertsForPhoto] No match with "${venueName}", trying simplified: "${simplifiedName}"`);
+            setlistData = await findSetlistWithAllCombinations({
+              venueName: simplifiedName,
+              concertDate: localDate || undefined,
+              city: city || undefined,
+              latitude: latitude || undefined,
+              longitude: longitude || undefined,
+            });
+            if (setlistData) {
+              console.log(`[searchConcertsForPhoto] ✓ Found match using simplified name "${simplifiedName}"!`);
+            }
+          }
+        }
+
+        // FOURTH: Try adding common venue suffixes (handles "Gorge" → "The Gorge Amphitheatre", "Nectar" → "Nectar Lounge")
+        if (!setlistData && venueName) {
+          const commonSuffixes = ['Amphitheatre', 'Amphitheater', 'Lounge', 'Theater', 'Theatre', 'Hall', 'Ballroom', 'Arena', 'Stadium', 'Center', 'Venue'];
+
+          for (const suffix of commonSuffixes) {
+            // Try with "The" prefix and suffix
+            const withTheAndSuffix = `The ${venueName} ${suffix}`;
+            console.log(`[searchConcertsForPhoto] Trying with prefix+suffix: "${withTheAndSuffix}"`);
+            setlistData = await findSetlistWithAllCombinations({
+              venueName: withTheAndSuffix,
+              concertDate: localDate || undefined,
+              city: city || undefined,
+              latitude: latitude || undefined,
+              longitude: longitude || undefined,
+            });
+            if (setlistData) {
+              console.log(`[searchConcertsForPhoto] ✓ Found match with "${withTheAndSuffix}"!`);
+              break;
+            }
+
+            // Try with just suffix (no "The")
+            const withSuffix = `${venueName} ${suffix}`;
+            console.log(`[searchConcertsForPhoto] Trying with suffix: "${withSuffix}"`);
+            setlistData = await findSetlistWithAllCombinations({
+              venueName: withSuffix,
+              concertDate: localDate || undefined,
+              city: city || undefined,
+              latitude: latitude || undefined,
+              longitude: longitude || undefined,
+            });
+            if (setlistData) {
+              console.log(`[searchConcertsForPhoto] ✓ Found match with "${withSuffix}"!`);
+              break;
+            }
+          }
+        }
+
+        // FIFTH: Try without city filter (handles cases where city name doesn't match setlist.fm)
+        if (!setlistData && venueName && city) {
+          console.log(`[searchConcertsForPhoto] Trying without city filter (venue+date only)...`);
+          setlistData = await findSetlistWithAllCombinations({
+            venueName: venueName,
+            concertDate: localDate || undefined,
+            city: undefined, // Remove city filter
+            latitude: latitude || undefined,
+            longitude: longitude || undefined,
+          });
+          if (setlistData) {
+            console.log(`[searchConcertsForPhoto] ✓ Found match without city filter!`);
+          }
+        }
+
+        // SIXTH: Use OSM to find actual venue name near GPS coordinates
+        if (!setlistData && latitude && longitude) {
+          console.log(`[searchConcertsForPhoto] Trying OSM venue detection...`);
+          try {
+            const { findOSMVenues } = await import("./osmVenueDetection");
+            const osmVenues = await findOSMVenues(latitude, longitude, 1200);
+
+            if (osmVenues.length > 0) {
+              console.log(`[searchConcertsForPhoto] Found ${osmVenues.length} OSM venues near GPS`);
+
+              // Try each OSM venue name
+              for (const osmVenue of osmVenues) {
+                console.log(`[searchConcertsForPhoto] Trying OSM venue: "${osmVenue.name}"`);
+                setlistData = await findSetlistWithAllCombinations({
+                  venueName: osmVenue.name,
+                  concertDate: localDate || undefined,
+                  city: city || undefined,
+                  latitude: latitude || undefined,
+                  longitude: longitude || undefined,
+                });
+                if (setlistData) {
+                  console.log(`[searchConcertsForPhoto] ✓ Found match using OSM venue "${osmVenue.name}"!`);
+                  break;
+                }
+
+                // Also try alt_name if exists
+                if (osmVenue.altName) {
+                  console.log(`[searchConcertsForPhoto] Trying OSM alt_name: "${osmVenue.altName}"`);
+                  setlistData = await findSetlistWithAllCombinations({
+                    venueName: osmVenue.altName,
+                    concertDate: localDate || undefined,
+                    city: city || undefined,
+                    latitude: latitude || undefined,
+                    longitude: longitude || undefined,
+                  });
+                  if (setlistData) {
+                    console.log(`[searchConcertsForPhoto] ✓ Found match using OSM alt_name "${osmVenue.altName}"!`);
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.warn(`[searchConcertsForPhoto] OSM venue detection failed:`, error);
+          }
+        }
+
         if (!setlistData || !setlistData.artist) {
-          console.log(`[searchConcertsForPhoto] ✗ NO MATCH FOUND`);
-          console.log(`  Reason: No setlists returned from Setlist.fm API`);
-          console.log(`  Possible causes:`);
-          console.log(`    - No concerts at "${venueName}" on ${takenAt?.toISOString().split('T')[0]}`);
-          console.log(`    - Venue/city name mismatch with Setlist.fm database`);
+          console.log(`[searchConcertsForPhoto] ✗ NO MATCH FOUND after all fallback strategies`);
+          console.log(`  Tried:`);
+          console.log(`    1. Original venue name: "${venueName}"`);
+          console.log(`    2. Alt name (if exists in DB)`);
+          console.log(`    3. Simplified name (removed suffixes)`);
+          console.log(`    4. Common venue suffixes (Amphitheatre, Lounge, etc.)`);
+          console.log(`    5. Without city filter`);
+          console.log(`    6. OSM-detected venue names`);
+          console.log(`  Possible reasons:`);
           console.log(`    - Concert not in Setlist.fm database`);
-          console.log(`    - GPS coordinates too far from venue (>1 kilometer)`);
+          console.log(`    - Venue name significantly different from Setlist.fm`);
+          console.log(`    - Wrong date selected`);
           return { found: false, suggestions: [], concertCreated: false };
         }
 
@@ -850,6 +1016,8 @@ export const appRouter = router({
               concertDate,
               weatherCondition: weatherData?.weather?.[0]?.description,
               temperature: weatherData?.main?.temp,
+              setlistFmId: setlistData.id || null,
+              setlistFmUrl: setlistData.url || null,
             });
             console.log(`[searchConcertsForPhoto] Created new concert ID: ${concert.id}`);
 
@@ -930,35 +1098,44 @@ export const appRouter = router({
       }))
       .query(async ({ input }) => {
         try {
-          // STEP 1: Always check database first (cached venues from previous lookups)
+          // STEP 1: Check database cache first
           console.log(`[getNearbyVenues] Checking database cache for venues near ${input.latitude}, ${input.longitude}`);
           const dbVenues = await db.findVenuesNearCoordinates(input.latitude, input.longitude, 0.746); // 1200 meters (~3/4 mile)
 
+          const allVenues: any[] = [];
+
           if (dbVenues.length > 0) {
             console.log(`[getNearbyVenues] ✓ Found ${dbVenues.length} cached venues within 1200m`);
-            const results = dbVenues.map(v => ({
-              name: v.name,
-              types: ['cached_venue'],
-              score: 100 - Math.round(v.distance * 1000), // Convert miles to meters for score
-              distance: Math.round(v.distance * 1609.34), // Add distance in meters for display
-              city: v.city,
-              state: v.state,
-              country: v.country,
-              latitude: v.latitude || '',
-              longitude: v.longitude || '',
-            }));
-
-            // Log the order for debugging
-            console.log('[getNearbyVenues] Venue order:');
-            results.forEach((v, i) => console.log(`  ${i + 1}. ${v.name} (${v.distance}m)`));
-
-            return results;
+            dbVenues.forEach(v => {
+              allVenues.push({
+                name: v.name,
+                types: ['cached_venue'],
+                score: 100 - Math.round(v.distance * 1000),
+                distance: Math.round(v.distance * 1609.34),
+                city: v.city,
+                state: v.state,
+                country: v.country,
+                latitude: v.latitude || '',
+                longitude: v.longitude || '',
+              });
+            });
           }
 
-          // STEP 2: No cached venues within 1200m, query OSM
-          console.log('[getNearbyVenues] No cached venues within 1200m, querying OSM...');
-          const { findOSMVenues } = await import("./osmVenueDetection");
+          // STEP 2: If we have cached venues, return them
+          if (allVenues.length > 0) {
+            // Sort by distance
+            allVenues.sort((a, b) => a.distance - b.distance);
+
+            console.log('[getNearbyVenues] Returning cached venues:');
+            allVenues.forEach((v, i) => console.log(`  ${i + 1}. ${v.name} (${v.distance}m) [${v.types.join(', ')}]`));
+
+            return allVenues;
+          }
+
+          // STEP 3: No cached venues found, query OSM
           const { reverseGeocode } = await import("./integrations");
+          console.log('[getNearbyVenues] No venues found yet, querying OSM as fallback...');
+          const { findOSMVenues } = await import("./osmVenueDetection");
 
           const osmVenues = await findOSMVenues(input.latitude, input.longitude, 1200); // 1200 meters
 
@@ -967,8 +1144,51 @@ export const appRouter = router({
             return [];
           }
 
-          // STEP 3: Cache OSM venues to database for future lookups
-          console.log(`[getNearbyVenues] Caching ${osmVenues.length} OSM venues to database...`);
+          // STEP 4: Validate OSM venues against setlist.fm (filter out venues with no concerts)
+          console.log(`[getNearbyVenues] Validating ${osmVenues.length} OSM venues against setlist.fm...`);
+          const validatedVenues = [];
+
+          for (const osmVenue of osmVenues) {
+            try {
+              // Query setlist.fm to see if this venue has ANY concerts
+              await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit
+
+              const axios = (await import('axios')).default;
+              const apiKey = process.env.SETLISTFM_API_KEY;
+
+              const response = await axios.get('https://api.setlist.fm/rest/1.0/search/venues', {
+                headers: { 'x-api-key': apiKey || '', 'Accept': 'application/json' },
+                params: { name: osmVenue.name, p: 1 },
+                timeout: 10000,
+              });
+
+              const venues = response.data.venue || [];
+              const exactMatch = venues.find((v: any) =>
+                v.name.toLowerCase() === osmVenue.name.toLowerCase()
+              );
+
+              if (exactMatch) {
+                console.log(`[getNearbyVenues] ✓ "${osmVenue.name}" exists in setlist.fm`);
+                validatedVenues.push(osmVenue);
+              } else {
+                console.log(`[getNearbyVenues] ✗ "${osmVenue.name}" NOT in setlist.fm - filtering out`);
+              }
+            } catch (error) {
+              // On error, keep the venue (don't filter out due to API issues)
+              console.warn(`[getNearbyVenues] Could not validate "${osmVenue.name}":`, error);
+              validatedVenues.push(osmVenue);
+            }
+          }
+
+          console.log(`[getNearbyVenues] ${validatedVenues.length}/${osmVenues.length} venues validated`);
+
+          if (validatedVenues.length === 0) {
+            console.log('[getNearbyVenues] No validated venues found');
+            return [];
+          }
+
+          // STEP 5: Cache validated OSM venues to database for future lookups
+          console.log(`[getNearbyVenues] Caching ${validatedVenues.length} validated venues to database...`);
 
           // Get city/state/country from reverse geocoding
           let geocodeData: any = null;
@@ -979,10 +1199,11 @@ export const appRouter = router({
           }
 
           const cachedVenues = [];
-          for (const osmVenue of osmVenues) {
+          for (const osmVenue of validatedVenues) {
             try {
               const cached = await db.cacheOSMVenue({
                 name: osmVenue.name,
+                altName: osmVenue.altName,
                 latitude: osmVenue.lat.toString(),
                 longitude: osmVenue.lon.toString(),
                 city: geocodeData?.city || 'Unknown',
@@ -995,9 +1216,9 @@ export const appRouter = router({
             }
           }
 
-          console.log(`[getNearbyVenues] Successfully cached ${cachedVenues.length}/${osmVenues.length} venues`);
+          console.log(`[getNearbyVenues] Successfully cached ${cachedVenues.length}/${validatedVenues.length} venues`);
 
-          // STEP 4: Return the cached venues
+          // STEP 6: Return the cached venues
           return cachedVenues.map(v => ({
             name: v.name,
             types: [v.osmMatchedTag || 'venue'],

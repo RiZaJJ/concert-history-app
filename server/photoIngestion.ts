@@ -117,10 +117,10 @@ async function autoDetectConcert(
     // STEP 1: Check user's existing concerts FIRST before going to setlist.fm
     console.log(`[Concert Matching] Checking user's database for existing concerts near GPS coordinates...`);
 
-    const nearbyVenues = await db.findVenuesNearCoordinates(latitude, longitude, 0.746); // 1200m = ~0.746 miles
+    const nearbyVenues = await db.findVenuesNearCoordinates(latitude, longitude, 1.24); // 2000m = ~1.24 miles
 
     if (nearbyVenues.length > 0) {
-      console.log(`[Concert Matching] Found ${nearbyVenues.length} venues in database within 1200m`);
+      console.log(`[Concert Matching] Found ${nearbyVenues.length} venues in database within 2000m`);
 
       // Check each venue for a concert on this date
       for (const venue of nearbyVenues) {
@@ -148,8 +148,16 @@ async function autoDetectConcert(
     }
 
     // STEP 2: No existing concert found - search setlist.fm for new concerts
+    // SAFETY CHECK: If OSM failed to detect a venue, don't auto-match
+    // Without a venue name, we can't reliably match concerts (could match wrong venue/date)
+    if (!detectedVenueName) {
+      console.log(`[Concert Matching] ⚠️  No venue detected by OSM - skipping auto-match to prevent false positives`);
+      console.log(`[Concert Matching] → Sending to manual review for user verification`);
+      return null;
+    }
+
     console.log(`[Concert Matching] Searching setlist.fm for new concerts...`);
-    const result = await searchSetlistsByDateAndLocation(date, latitude, longitude, detectedVenueName || undefined);
+    const result = await searchSetlistsByDateAndLocation(date, latitude, longitude, detectedVenueName);
     if (!result.setlists || result.setlists.length === 0) return null;
 
     // If multiple setlists found on same date/venue, try to pick the headliner
@@ -239,6 +247,8 @@ async function autoDetectConcert(
         concertDate,
         weatherCondition: weatherData?.weather?.[0]?.description,
         temperature: weatherData?.main?.temp,
+        setlistFmId: setlist.id || null,
+        setlistFmUrl: setlist.url || null,
       });
       console.log(`[PhotoIngestion] Created new concert: ${artistName} at ${venueName} (ID: ${concert.id})`);
     } else {
@@ -484,13 +494,15 @@ export async function scanAndIngestPhotos(userId: number, limit?: number): Promi
                 // Get lat/lon from first photo GPS
                 await db.cacheOSMVenue({
                   name: bestVenue.name,
+                  altName: bestVenue.altName,
                   latitude: firstPhoto.exif.latitude!,
                   longitude: firstPhoto.exif.longitude!,
                   city: group.locationData?.city || 'Unknown',
                   state: group.locationData?.state,
                   country: group.locationData?.country || 'Unknown',
                 });
-                console.log(`[PhotoIngestion] Cached validated venue to database: ${group.detectedVenue}`);
+                const altInfo = bestVenue.altName ? ` [alt: "${bestVenue.altName}"]` : '';
+                console.log(`[PhotoIngestion] Cached validated venue to database: ${group.detectedVenue}${altInfo}`);
               } catch (cacheError) {
                 console.warn(`[PhotoIngestion] Failed to cache venue:`, cacheError);
               }
@@ -613,6 +625,38 @@ export async function scanAndIngestPhotos(userId: number, limit?: number): Promi
             }
           }
 
+          // NEW: If no GPS but has date, try to match to concerts on same date
+          if (!concertId && !hasGPS && photoDate) {
+            const dateKey = getDateKey(photoDate);
+
+            // Find all user's concerts on this date
+            const concertsOnDate = userConcerts.filter(c => {
+              const concertDateKey = getDateKey(new Date(c.concertDate));
+              return concertDateKey === dateKey;
+            });
+
+            if (concertsOnDate.length === 1) {
+              // Exactly one concert on this date - auto-link!
+              concertId = concertsOnDate[0].id;
+              isNewConcert = false; // Concert already exists
+
+              const artist = await db.getArtistById(concertsOnDate[0].artistId);
+              const venue = venueMap.get(concertsOnDate[0].venueId);
+              console.log(`[PhotoIngestion] ✓ Auto-linked no-GPS photo to same-date concert: ${artist?.name} at ${venue?.name} (${photo.fileName})`);
+
+              updateScanProgress(userId, {
+                currentStatus: 'Auto-linked (no GPS, same date)',
+                currentArtist: artist?.name,
+                currentVenue: venue?.name,
+                ...stats
+              });
+            } else if (concertsOnDate.length > 1) {
+              console.log(`[PhotoIngestion] No GPS photo on date with ${concertsOnDate.length} concerts - needs manual review`);
+            } else {
+              console.log(`[PhotoIngestion] No GPS photo with no concerts on this date - needs manual review`);
+            }
+          }
+
           // Cache the match result for all subsequent photos in this group
           group.matchedConcertId = concertId;
           group.isNewConcert = isNewConcert;
@@ -626,6 +670,8 @@ export async function scanAndIngestPhotos(userId: number, limit?: number): Promi
 
         if (!concertId) {
           // Create unmatched photo with cached location data and detected venue
+          const noGps = !photo.exif.latitude || !photo.exif.longitude ? 1 : 0;
+
           await db.createUnmatchedPhoto({
             userId,
             driveFileId: photo.fileId,
@@ -642,6 +688,7 @@ export async function scanAndIngestPhotos(userId: number, limit?: number): Promi
             venueName: group.detectedVenue || null,
             venueDetectionMethod: group.detectedVenue ? 'osm_scan' : null,
             venueConfidence: group.detectedVenue ? 'high' : null,
+            noGps,
           });
           stats.unmatched++;
 

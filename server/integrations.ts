@@ -1,8 +1,75 @@
 import axios from "axios";
-import { isFuzzyVenueMatch } from "./fuzzyMatch";
+import { isFuzzyVenueMatch, stringSimilarity } from "./fuzzyMatch";
 import { calculateDistance } from "./gpsUtils";
 import { google } from "googleapis";
 import { logExternalApi } from "./logger";
+
+/**
+ * Comprehensive error logging for external API calls
+ * Handles timeouts, rate limits, server errors, and network issues
+ */
+function logApiError(serviceName: string, operation: string, error: any, startTime: number): void {
+  const statusCode = error.response?.status || error.code;
+  const errorDetails = error.response?.data || error.message;
+  const elapsed = Date.now() - startTime;
+
+  // Check for timeout errors
+  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+    console.error(`[${serviceName} ${operation}] ❌ TIMEOUT - Request took too long (${elapsed}ms)`);
+    console.error(`[${serviceName}] Error: ${error.message}`);
+    logExternalApi(serviceName, operation, false, `⚠️ TIMEOUT (${elapsed}ms)`, elapsed, `Code: ${error.code}, ${error.message}`);
+    return;
+  }
+
+  // HTTP status code errors
+  switch (statusCode) {
+    case 404:
+      console.error(`[${serviceName} ${operation}] ❌ 404 NOT FOUND`);
+      console.error(`[${serviceName}] Response: ${JSON.stringify(errorDetails)}`);
+      logExternalApi(serviceName, operation, false, '404 Not Found', elapsed, `Status: ${statusCode}`);
+      break;
+
+    case 429:
+      console.error(`[${serviceName} ${operation}] ❌ 429 RATE LIMIT EXCEEDED - Too many requests!`);
+      console.error(`[${serviceName}] Response: ${JSON.stringify(errorDetails)}`);
+      logExternalApi(serviceName, operation, false, '⚠️ RATE LIMIT EXCEEDED (429)', elapsed, `Status: ${statusCode}`);
+      break;
+
+    case 500:
+      console.error(`[${serviceName} ${operation}] ❌ 500 INTERNAL SERVER ERROR`);
+      console.error(`[${serviceName}] Response: ${JSON.stringify(errorDetails)}`);
+      logExternalApi(serviceName, operation, false, '⚠️ INTERNAL SERVER ERROR (500)', elapsed, `Status: ${statusCode}`);
+      break;
+
+    case 502:
+      console.error(`[${serviceName} ${operation}] ❌ 502 BAD GATEWAY`);
+      console.error(`[${serviceName}] Response: ${JSON.stringify(errorDetails)}`);
+      logExternalApi(serviceName, operation, false, '⚠️ BAD GATEWAY (502)', elapsed, `Status: ${statusCode}`);
+      break;
+
+    case 503:
+      console.error(`[${serviceName} ${operation}] ❌ 503 SERVICE UNAVAILABLE`);
+      console.error(`[${serviceName}] Response: ${JSON.stringify(errorDetails)}`);
+      logExternalApi(serviceName, operation, false, '⚠️ SERVICE UNAVAILABLE (503)', elapsed, `Status: ${statusCode}`);
+      break;
+
+    case 504:
+      console.error(`[${serviceName} ${operation}] ❌ 504 GATEWAY TIMEOUT`);
+      console.error(`[${serviceName}] Response: ${JSON.stringify(errorDetails)}`);
+      logExternalApi(serviceName, operation, false, '⚠️ GATEWAY TIMEOUT (504)', elapsed, `Status: ${statusCode}`);
+      break;
+
+    case 524:
+      console.error(`[${serviceName} ${operation}] ❌ 524 CLOUDFLARE TIMEOUT - Origin didn't respond in time`);
+      console.error(`[${serviceName}] Response: ${JSON.stringify(errorDetails)}`);
+      logExternalApi(serviceName, operation, false, '⚠️ CLOUDFLARE TIMEOUT (524)', elapsed, `Status: ${statusCode}`);
+      break;
+
+    default:
+      console.error(`[${serviceName} ${operation}] ❌ Error (${statusCode || 'unknown'}):`, errorDetails);
+      logExternalApi(serviceName, operation, false, `Error: ${statusCode || 'unknown'}`, elapsed, `Status: ${statusCode || 'unknown'}, ${error.message}`);
+  }
+}
 
 /**
  * Setlist.fm API Integration
@@ -36,7 +103,7 @@ export async function findNearbyVenue(
   latitude: string,
   longitude: string,
   city?: string
-): Promise<{ name: string; method: string; confidence: string } | null> {
+): Promise<{ name: string; altName?: string; method: string; confidence: string } | null> {
   const startTime = Date.now();
   try {
     const { findBestOSMVenue } = await import("./osmVenueDetection");
@@ -78,6 +145,7 @@ export async function reverseGeocode(
         limit: 1,
         appid: process.env.OPENWEATHER_API_KEY,
       },
+      timeout: 10000, // 10 second timeout
     });
 
     const location = response.data[0];
@@ -105,26 +173,7 @@ export async function reverseGeocode(
       country: location.country,
     };
   } catch (error: any) {
-    const statusCode = error.response?.status;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[OpenWeather Geocode] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[OpenWeather] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('OpenWeather', 'reverseGeocode', false, '⚠️ RATE LIMIT EXCEEDED (429)', Date.now() - startTime, `Status: ${statusCode}`);
-    } else if (statusCode === 500) {
-      console.error("[OpenWeather Geocode] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[OpenWeather] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('OpenWeather', 'reverseGeocode', false, '⚠️ INTERNAL SERVER ERROR (500)', Date.now() - startTime, `Status: ${statusCode}`);
-    } else if (statusCode === 504) {
-      console.error("[OpenWeather Geocode] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[OpenWeather] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('OpenWeather', 'reverseGeocode', false, '⚠️ GATEWAY TIMEOUT (504)', Date.now() - startTime, `Status: ${statusCode}`);
-    } else {
-      console.error(`[OpenWeather Geocode] Error (${statusCode || 'unknown'}):`, errorDetails);
-      logExternalApi('OpenWeather', 'reverseGeocode', false, 'Geocoding failed', Date.now() - startTime, `Status: ${statusCode || 'unknown'}, ${error.message}`);
-    }
-
+    logApiError('OpenWeather', 'Reverse Geocode', error, startTime);
     return null;
   }
 }
@@ -161,6 +210,7 @@ export async function searchSetlistsByDateAndLocation(
         limit: 1,
         appid: process.env.OPENWEATHER_API_KEY,
       },
+      timeout: 10000, // 10 second timeout
     });
 
     const location = geoResponse.data[0];
@@ -179,16 +229,19 @@ export async function searchSetlistsByDateAndLocation(
     // Check if the "city" is actually a county name - these don't work with Setlist.fm
     const isCounty = cityName.toLowerCase().includes('county');
 
-    // Build search params - add venue name to narrow results
+    // Build search params - fetch first 3 pages to get more results
     const searchParams: any = {
       date: dateStr,
-      p: 1,
+      p: 1, // Start with page 1
     };
 
-    // Always add venue name if available to get more specific results
+    // Send FIRST WORD of venue name to API
+    // setlist.fm API requires venue name for certain concerts (e.g., "Showbox" won't appear without venueName param)
+    // Use first word only to be less restrictive (catches "Showbox" and "Showvbox")
     if (venueName) {
-      searchParams.venueName = venueName;
-      console.log(`[Setlist.fm] Using venue name in search: "${venueName}"`);
+      const firstWord = venueName.split(/\s+/)[0];
+      searchParams.venueName = firstWord;
+      console.log(`[Setlist.fm] Sending first word of venue to API: "${firstWord}" (original: "${venueName}")`);
     }
 
     // Add city name for non-county locations
@@ -208,28 +261,124 @@ export async function searchSetlistsByDateAndLocation(
     // Apply rate limiting before calling Setlist.fm API
     await setlistFmRateLimit();
 
-    // Search setlist.fm by date and venue (or city if venue not available)
-    const response = await axios.get("https://api.setlist.fm/rest/1.0/search/setlists", {
-      headers: {
-        "x-api-key": apiKey,
-        Accept: "application/json",
-      },
-      params: searchParams,
-    });
+    // Fetch multiple pages to ensure we get all concerts (max 3 pages = 60 concerts)
+    let allSetlists: any[] = [];
+    const maxPages = 3;
 
-    console.log(`  API returned: ${response.data.setlist?.length || 0} setlist(s)`);
-    if (response.data.setlist && response.data.setlist.length > 0) {
-      console.log(`  Results:`);
-      response.data.setlist.forEach((s: any, idx: number) => {
+    for (let page = 1; page <= maxPages; page++) {
+      searchParams.p = page;
+
+      try {
+        const response = await axios.get("https://api.setlist.fm/rest/1.0/search/setlists", {
+          headers: {
+            "x-api-key": apiKey,
+            Accept: "application/json",
+          },
+          params: searchParams,
+          timeout: 15000, // 15 second timeout for setlist searches
+        });
+
+        const pageSetlists = response.data.setlist || [];
+        allSetlists = allSetlists.concat(pageSetlists);
+
+        console.log(`  Page ${page}: ${pageSetlists.length} setlist(s)`);
+
+        // Stop if this page returned 0 results (no more data)
+        if (pageSetlists.length === 0) {
+          break;
+        }
+
+        // Rate limit between pages (if we're fetching more)
+        if (page < maxPages) {
+          await setlistFmRateLimit();
+        }
+      } catch (error: any) {
+        // Handle 404 "page does not exist" - just means no more pages
+        if (error.response?.status === 404) {
+          console.log(`  Page ${page}: No more pages (404)`);
+          break;
+        }
+        // Re-throw other errors
+        throw error;
+      }
+    }
+
+    console.log(`  API returned: ${allSetlists.length} total setlist(s) across ${Math.min(maxPages, Math.ceil(allSetlists.length / 20))} page(s)`);
+
+    // FALLBACK: If no results and we searched with city+venue, retry with just venue+date
+    if (allSetlists.length === 0 && venueName && searchParams.cityName) {
+      console.log(`\n  No results with city+venue+date. Retrying with just venue+date...`);
+
+      // Remove city from search params
+      const fallbackParams: any = {
+        date: dateStr,
+        p: 1,
+      };
+
+      if (venueName) {
+        const firstWord = venueName.split(/\s+/)[0];
+        fallbackParams.venueName = firstWord;
+        console.log(`  Searching with venue="${firstWord}" and date=${dateStr} (no city filter)`);
+      }
+
+      await setlistFmRateLimit();
+
+      // Retry with just venue+date (no city)
+      for (let page = 1; page <= maxPages; page++) {
+        fallbackParams.p = page;
+
+        try {
+          const response = await axios.get("https://api.setlist.fm/rest/1.0/search/setlists", {
+            headers: {
+              "x-api-key": apiKey,
+              Accept: "application/json",
+            },
+            params: fallbackParams,
+            timeout: 15000,
+          });
+
+          const pageSetlists = response.data.setlist || [];
+          allSetlists = allSetlists.concat(pageSetlists);
+
+          console.log(`  Fallback page ${page}: ${pageSetlists.length} setlist(s)`);
+
+          if (pageSetlists.length === 0) {
+            break;
+          }
+
+          if (page < maxPages) {
+            await setlistFmRateLimit();
+          }
+        } catch (error: any) {
+          if (error.response?.status === 404) {
+            console.log(`  Fallback page ${page}: No more pages (404)`);
+            break;
+          }
+          throw error;
+        }
+      }
+
+      console.log(`  Fallback search returned: ${allSetlists.length} setlist(s)`);
+    }
+
+    if (allSetlists.length > 0) {
+      console.log(`  Sample results (first 5):`);
+      allSetlists.slice(0, 5).forEach((s: any, idx: number) => {
         console.log(`    ${idx + 1}. ${s.artist?.name} at ${s.venue?.name} (${s.venue?.city?.name})`);
       });
+      if (allSetlists.length > 5) {
+        console.log(`    ... and ${allSetlists.length - 5} more`);
+      }
     }
+
+    // Replace response.data.setlist with all fetched setlists
+    const response = { data: { setlist: allSetlists } };
 
     console.log(`\n  Applying filters:`);
 
-    // If venue name is provided, skip GPS distance check - trust the venue + date match
+    // If venue name is provided, filter by fuzzy venue match
     if (venueName) {
-      console.log(`    - Venue name match only (no GPS distance check)`);
+      console.log(`    - Fuzzy venue name matching (70% threshold)`);
 
       const filteredSetlists = (response.data.setlist || []).filter((setlist: any) => {
         if (!setlist.venue?.name) {
@@ -241,8 +390,63 @@ export async function searchSetlistsByDateAndLocation(
         return venueMatch;
       });
 
-      console.log(`\n  Final result: ${filteredSetlists.length}/${response.data.setlist?.length || 0} concerts matched venue name`);
+      console.log(`\n  Fuzzy match result: ${filteredSetlists.length}/${response.data.setlist?.length || 0} concerts matched venue name`);
 
+      // FALLBACK: If no matches, try matching with just the first word of the venue name
+      if (filteredSetlists.length === 0 && venueName) {
+        const firstWord = venueName.split(/\s+/)[0]; // Extract first word
+        console.log(`\n  No fuzzy matches found. Trying fallback: first word only ("${firstWord}")`);
+
+        const partialMatches = (response.data.setlist || []).filter((setlist: any) => {
+          if (!setlist.venue?.name) return false;
+
+          // Check if venue name contains the first word (case-insensitive)
+          const venueNameLower = setlist.venue.name.toLowerCase();
+          const firstWordLower = firstWord.toLowerCase();
+
+          const contains = venueNameLower.includes(firstWordLower);
+          console.log(`[Partial Match] "${setlist.venue.name}" contains "${firstWord}": ${contains ? '✓' : '✗'}`);
+          return contains;
+        });
+
+        console.log(`\n  Partial match result: ${partialMatches.length}/${response.data.setlist?.length || 0} concerts contain "${firstWord}"`);
+
+        if (partialMatches.length > 0) {
+          filteredSetlists = partialMatches;
+        }
+      }
+
+      // If multiple matches found, use fuzzy score to disambiguate
+      // NOTE: Do NOT use setlist.fm GPS coordinates - they're often inaccurate (e.g., The Gorge shows as city center)
+      if (filteredSetlists.length > 1) {
+        console.log(`[Fuzzy Match Filter] Multiple venue matches (${filteredSetlists.length}), selecting best fuzzy match...`);
+
+        // Calculate fuzzy match score for each venue
+        const scoredSetlists = filteredSetlists.map((setlist: any) => {
+          const fuzzyScore = stringSimilarity(venueName, setlist.venue?.name || '');
+          console.log(`[Match Score] "${setlist.venue?.name}" - Fuzzy: ${fuzzyScore}%`);
+
+          return {
+            setlist,
+            fuzzyScore,
+          };
+        });
+
+        // Sort by fuzzy score (descending) - best match first
+        scoredSetlists.sort((a, b) => b.fuzzyScore - a.fuzzyScore);
+
+        const bestMatch = scoredSetlists[0];
+        console.log(`\n  Final result: "${bestMatch.setlist.venue?.name}" selected (${bestMatch.fuzzyScore}% match)`);
+
+        logExternalApi('Setlist.fm', 'searchByDateAndLocation', true, `Found ${scoredSetlists.length} concerts in ${cityName} on ${dateStr}`, Date.now() - startTime);
+        return {
+          setlists: [bestMatch.setlist], // Return only the best match
+          city: cityName,
+          country: location.country,
+        };
+      }
+
+      console.log(`\n  Final result: ${filteredSetlists.length} concert(s) matched`);
       logExternalApi('Setlist.fm', 'searchByDateAndLocation', true, `Found ${filteredSetlists.length} concerts in ${cityName} on ${dateStr}`, Date.now() - startTime);
       return {
         setlists: filteredSetlists,
@@ -251,31 +455,14 @@ export async function searchSetlistsByDateAndLocation(
       };
     }
 
-    // No venue name - use GPS distance filtering
-    console.log(`    - Max distance: 1200 meters (no venue name provided)`);
+    // No venue name detected - return ALL concerts on this date in city (no GPS filtering)
+    // User will need to manually pick from the list since we can't auto-match
+    console.log(`    - No venue name provided: returning all ${response.data.setlist?.length || 0} concerts on this date in ${cityName}`);
+    console.log(`    - GPS filtering disabled (unreliable for matching)`);
 
-    const photoLat = parseFloat(latitude);
-    const photoLon = parseFloat(longitude);
-    const MAX_DISTANCE_MILES = 0.746; // 1200 meters
+    const filteredSetlists = response.data.setlist || [];
 
-    const filteredSetlists = (response.data.setlist || []).filter((setlist: any) => {
-      const venueLat = setlist.venue?.city?.coords?.lat;
-      const venueLon = setlist.venue?.city?.coords?.long;
-
-      if (!venueLat || !venueLon) {
-        console.log(`[Location Filter] Skipping ${setlist.artist?.name} - no venue GPS coordinates`);
-        return false;
-      }
-
-      const distance = calculateDistance(photoLat, photoLon, venueLat, venueLon);
-      const withinRange = distance <= MAX_DISTANCE_MILES;
-
-      console.log(`[Location Filter] ${setlist.artist?.name} at ${setlist.venue?.name}: ${distance.toFixed(1)} miles (${(distance * 1609.34).toFixed(0)}m) ${withinRange ? '✓' : '✗'}`);
-
-      return withinRange;
-    });
-
-    console.log(`\n  Final result: ${filteredSetlists.length}/${response.data.setlist?.length || 0} concerts within GPS radius`);
+    console.log(`\n  Final result: ${filteredSetlists.length} concerts on ${dateStr} in ${cityName} (no filtering applied)`);
 
     logExternalApi('Setlist.fm', 'searchByDateAndLocation', true, `Found ${filteredSetlists.length} concerts in ${cityName} on ${dateStr}`, Date.now() - startTime);
     return {
@@ -284,29 +471,7 @@ export async function searchSetlistsByDateAndLocation(
       country: location.country,
     };
   } catch (error: any) {
-    const errorDetails = error.response?.data || error.message;
-    const statusCode = error.response?.status;
-
-    if (statusCode === 404) {
-      console.error(`[Setlist.fm] ❌ 404 Not Found - City "${error.config?.params?.cityName}" or date "${error.config?.params?.date}" may be invalid`);
-      logExternalApi('Setlist.fm', 'searchByDateAndLocation', false, `404 Not Found (city or date invalid)`, Date.now() - startTime, `Status: ${statusCode}`);
-    } else if (statusCode === 429) {
-      console.error("[Setlist.fm] ❌ 429 RATE LIMIT EXCEEDED - Too many requests");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('Setlist.fm', 'searchByDateAndLocation', false, '⚠️ RATE LIMIT EXCEEDED (429)', Date.now() - startTime, `Status: ${statusCode}, Data: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Setlist.fm] ❌ 500 INTERNAL SERVER ERROR - Setlist.fm server issue");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('Setlist.fm', 'searchByDateAndLocation', false, '⚠️ INTERNAL SERVER ERROR (500)', Date.now() - startTime, `Status: ${statusCode}, Data: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Setlist.fm] ❌ 504 GATEWAY TIMEOUT - Setlist.fm took too long to respond");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('Setlist.fm', 'searchByDateAndLocation', false, '⚠️ GATEWAY TIMEOUT (504)', Date.now() - startTime, `Status: ${statusCode}, Data: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Setlist.fm] Error (${statusCode || 'unknown'}):`, errorDetails);
-      logExternalApi('Setlist.fm', 'searchByDateAndLocation', false, 'Search failed', Date.now() - startTime, `Status: ${statusCode || 'unknown'}, ${error.message}`);
-    }
-
+    logApiError('Setlist.fm', 'Search By Date & Location', error, startTime);
     return { setlists: [], city: null, country: null };
   }
 }
@@ -318,8 +483,11 @@ export async function searchSetlistsByDateAndLocation(
 export async function searchSetlistsByDateAndCity(
   date: Date,
   cityName: string,
-  venueName?: string
+  venueName?: string,
+  latitude?: string,
+  longitude?: string
 ): Promise<any> {
+  const startTime = Date.now();
   const apiKey = process.env.SETLISTFM_API_KEY;
   if (!apiKey) {
     throw new Error("SETLISTFM_API_KEY not configured");
@@ -346,17 +514,30 @@ export async function searchSetlistsByDateAndCity(
     // Apply rate limiting before calling Setlist.fm API
     await setlistFmRateLimit();
 
-    // Search setlist.fm by date and city
+    // Build search params - try with venueName if provided
+    const searchParams: any = {
+      date: dateStr,
+      cityName: cityName,
+      p: 1,
+    };
+
+    // Send FIRST WORD of venue name to API
+    // setlist.fm API requires venue name for certain concerts
+    // Use first word only to be less restrictive (catches "Showbox" and "Showvbox")
+    if (venueName) {
+      const firstWord = venueName.split(/\s+/)[0];
+      searchParams.venueName = firstWord;
+      console.log(`[Setlist.fm City Search] Sending first word of venue to API: "${firstWord}" (original: "${venueName}")`);
+    }
+
+    // Search setlist.fm by date and city (and optionally venue)
     const response = await axios.get("https://api.setlist.fm/rest/1.0/search/setlists", {
       headers: {
         "x-api-key": apiKey,
         Accept: "application/json",
       },
-      params: {
-        date: dateStr,
-        cityName: cityName,
-        p: 1,
-      },
+      params: searchParams,
+      timeout: 15000, // 15 second timeout for setlist searches
     });
 
     const setlists = response.data.setlist || [];
@@ -370,7 +551,7 @@ export async function searchSetlistsByDateAndCity(
           console.log(`[Venue Filter] Skipping setlist - no venue name`);
           return false;
         }
-        
+
         const isMatch = isFuzzyVenueMatch(venueName, setlistVenueName, 70);
         console.log(`[Venue Filter] "${venueName}" vs "${setlistVenueName}": ${isMatch ? '✓ Match' : '✗ No match'}`);
         return isMatch;
@@ -378,7 +559,55 @@ export async function searchSetlistsByDateAndCity(
 
       console.log(`[Venue Filter] ${matchingSetlists.length}/${setlists.length} setlists matched venue`);
 
+      // FALLBACK: If no matches, try matching with just the first word of the venue name
+      if (matchingSetlists.length === 0 && venueName) {
+        const firstWord = venueName.split(/\s+/)[0]; // Extract first word
+        console.log(`\n  No fuzzy matches found. Trying fallback: first word only ("${firstWord}")`);
+
+        const partialMatches = setlists.filter((setlist: any) => {
+          if (!setlist.venue?.name) return false;
+
+          // Check if venue name contains the first word (case-insensitive)
+          const venueNameLower = setlist.venue.name.toLowerCase();
+          const firstWordLower = firstWord.toLowerCase();
+
+          const contains = venueNameLower.includes(firstWordLower);
+          console.log(`[Partial Match] "${setlist.venue.name}" contains "${firstWord}": ${contains ? '✓' : '✗'}`);
+          return contains;
+        });
+
+        console.log(`\n  Partial match result: ${partialMatches.length}/${setlists.length} concerts contain "${firstWord}"`);
+
+        if (partialMatches.length > 0) {
+          matchingSetlists = partialMatches;
+        }
+      }
+
       if (matchingSetlists.length > 0) {
+        // If multiple matches, select best fuzzy match
+        // NOTE: Do NOT use setlist.fm GPS coordinates - they're often inaccurate
+        if (matchingSetlists.length > 1) {
+          console.log(`[Fuzzy Match Filter] Multiple venue matches (${matchingSetlists.length}), selecting best fuzzy match...`);
+
+          // Calculate fuzzy match score for each venue
+          const scoredSetlists = matchingSetlists.map((setlist: any) => {
+            const fuzzyScore = stringSimilarity(venueName, setlist.venue?.name || '');
+            console.log(`[Match Score] "${setlist.venue?.name}" - Fuzzy: ${fuzzyScore}%`);
+
+            return {
+              setlist,
+              fuzzyScore,
+            };
+          });
+
+          // Sort by fuzzy score (descending) - best match first
+          scoredSetlists.sort((a, b) => b.fuzzyScore - a.fuzzyScore);
+
+          const bestMatch = scoredSetlists[0];
+          console.log(`[Setlist.fm City Search] Returning best fuzzy match: ${bestMatch.setlist.artist?.name} at ${bestMatch.setlist.venue?.name} (${bestMatch.fuzzyScore}% match)`);
+          return bestMatch.setlist;
+        }
+
         console.log(`[Setlist.fm City Search] Returning: ${matchingSetlists[0].artist?.name} at ${matchingSetlists[0].venue?.name}`);
         return matchingSetlists[0];
       }
@@ -391,22 +620,7 @@ export async function searchSetlistsByDateAndCity(
     console.log(`[Setlist.fm City Search] No matching setlists found`);
     return null;
   } catch (error: any) {
-    const statusCode = error.response?.status;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[Setlist.fm City Search] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Setlist.fm City Search] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Setlist.fm City Search] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Setlist.fm City Search] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('Setlist.fm', 'City Search', error, startTime);
     return null;
   }
 }
@@ -422,6 +636,7 @@ export async function fetchSetlistByArtistAndDate(
   latitude?: string,
   longitude?: string
 ): Promise<any> {
+  const startTime = Date.now();
   const apiKey = process.env.SETLISTFM_API_KEY;
   if (!apiKey) {
     throw new Error("SETLISTFM_API_KEY not configured");
@@ -450,38 +665,22 @@ export async function fetchSetlistByArtistAndDate(
         date: dateStr,
         p: 1,
       },
+      timeout: 15000, // 15 second timeout for setlist searches
     });
 
     console.log(`[Setlist.fm] Found ${response.data.setlist?.length || 0} setlist(s)`);
 
-    // If GPS coordinates provided, filter by distance
+    // Return all setlists for this artist + date (no GPS filtering)
+    // GPS coordinates from photos are unreliable for matching
     let setlists = response.data?.setlist || [];
-    if (latitude && longitude && setlists.length > 0) {
-      const photoLat = parseFloat(latitude);
-      const photoLon = parseFloat(longitude);
-      const MAX_DISTANCE_MILES = 0.746; // Only accept concerts within 1200 meters of photo location
-
-      setlists = setlists.filter((setlist: any) => {
-        const venueLat = setlist.venue?.city?.coords?.lat;
-        const venueLon = setlist.venue?.city?.coords?.long;
-
-        if (!venueLat || !venueLon) {
-          console.log(`[Location Filter] Skipping ${setlist.venue?.name} - no GPS coordinates`);
-          return false;
-        }
-
-        const distance = calculateDistance(photoLat, photoLon, venueLat, venueLon);
-        const withinRange = distance <= MAX_DISTANCE_MILES;
-
-        console.log(`[Location Filter] ${setlist.venue?.name} (${setlist.venue?.city?.name}, ${setlist.venue?.city?.state || setlist.venue?.city?.country?.code}): ${distance.toFixed(1)} miles (${(distance * 1609.34).toFixed(0)}m) ${withinRange ? '✓' : '✗ (too far)'}`);
-
-        return withinRange;
+    if (setlists.length > 0) {
+      console.log(`[Setlist.fm] Returning all ${setlists.length} concerts for ${artistName} on ${dateStr}`);
+      setlists.forEach((s: any, idx: number) => {
+        console.log(`  ${idx + 1}. ${s.venue?.name} (${s.venue?.city?.name}, ${s.venue?.city?.state || s.venue?.city?.country?.code})`);
       });
-
-      console.log(`[Location Filter] ${setlists.length}/${response.data.setlist?.length || 0} concerts within 1200 meters`);
     }
 
-    // Return the first (closest) setlist with full venue information
+    // Return the first setlist (or all if multiple venues on same date)
     if (setlists.length > 0) {
       console.log(`[Setlist.fm] Returning: ${setlists[0].artist?.name} at ${setlists[0].venue?.name}`);
       return setlists[0];
@@ -489,22 +688,7 @@ export async function fetchSetlistByArtistAndDate(
     console.log(`[Setlist.fm] No matching setlists found`);
     return null;
   } catch (error: any) {
-    const statusCode = error.response?.status;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[Setlist.fm Artist+Date] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Setlist.fm Artist+Date] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Setlist.fm Artist+Date] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Setlist.fm Artist+Date] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('Setlist.fm', 'Artist+Date Search', error, startTime);
     return null;
   }
 }
@@ -514,6 +698,7 @@ export async function fetchSetlistByDateAndVenue(
   venueName: string,
   date: Date
 ): Promise<any> {
+  const startTime = Date.now();
   const apiKey = process.env.SETLISTFM_API_KEY;
   if (!apiKey) {
     throw new Error("SETLISTFM_API_KEY not configured");
@@ -543,6 +728,7 @@ export async function fetchSetlistByDateAndVenue(
         date: dateStr,
         p: 1,
       },
+      timeout: 15000, // 15 second timeout for setlist searches
     });
 
     console.log(`[Setlist.fm] Found ${response.data.setlist?.length || 0} setlist(s)`);
@@ -571,22 +757,7 @@ export async function fetchSetlistByDateAndVenue(
     console.log(`[Setlist.fm] No matching setlists found for venue "${venueName}"`);
     return null;
   } catch (error: any) {
-    const statusCode = error.response?.status;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[Setlist.fm Date+Venue] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Setlist.fm Date+Venue] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Setlist.fm Date+Venue] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Setlist.fm Date+Venue] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('Setlist.fm', 'Date+Venue Search', error, startTime);
     return null; // Return null instead of throwing to allow graceful fallback
   }
 }
@@ -613,26 +784,12 @@ export async function fetchCurrentWeather(
         appid: apiKey,
         units: "imperial", // Fahrenheit
       },
+      timeout: 10000, // 10 second timeout
     });
 
     return response.data;
   } catch (error: any) {
-    const statusCode = error.response?.status;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[OpenWeather Weather] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[OpenWeather] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[OpenWeather Weather] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[OpenWeather] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[OpenWeather Weather] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[OpenWeather] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[OpenWeather Weather] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('OpenWeather', 'Current Weather', error, startTime);
     throw new Error(`Failed to fetch weather: ${error.message}`);
   }
 }
@@ -741,22 +898,7 @@ export async function getFileContent(fileId: string): Promise<string> {
 
     return response.data as string;
   } catch (error: any) {
-    const statusCode = error.response?.status || error.code;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[Google Drive Get Content] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Google Drive Get Content] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Google Drive Get Content] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Google Drive Get Content] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('Google Drive', 'Get Content', error, startTime);
     throw new Error(`Failed to get file content: ${error.message}`);
   }
 }
@@ -791,22 +933,7 @@ export async function listPhotosFromDrive(folderId: string) {
     console.log(`[Google Drive] Total files found: ${allFiles.length} across ${pageCount} page(s)`);
     return allFiles;
   } catch (error: any) {
-    const statusCode = error.response?.status || error.code;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[Google Drive List] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Google Drive List] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Google Drive List] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Google Drive List] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('Google Drive', 'List Files', error, startTime);
     throw new Error(`Failed to list photos from Drive: ${error.message}`);
   }
 }
@@ -822,22 +949,7 @@ export async function getPhotoMetadata(fileId: string) {
 
     return response.data;
   } catch (error: any) {
-    const statusCode = error.response?.status || error.code;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[Google Drive Metadata] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Google Drive Metadata] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Google Drive Metadata] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Google Drive Metadata] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('Google Drive', 'Get Metadata', error, startTime);
     throw new Error(`Failed to get photo metadata: ${error.message}`);
   }
 }
@@ -853,22 +965,7 @@ export async function downloadPhotoFromDrive(fileId: string): Promise<Buffer> {
 
     return Buffer.from(response.data as ArrayBuffer);
   } catch (error: any) {
-    const statusCode = error.response?.status || error.code;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[Google Drive Download] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[Google Drive Download] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[Google Drive Download] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Google Drive] Response: ${JSON.stringify(errorDetails)}`);
-    } else {
-      console.error(`[Google Drive Download] Error (${statusCode || 'unknown'}):`, errorDetails);
-    }
-
+    logApiError('Google Drive', 'Download Photo', error, startTime);
     throw new Error(`Failed to download photo: ${error.message}`);
   }
 }
@@ -889,59 +986,79 @@ export async function validateVenueOnSetlistFm(
   const startTime = Date.now();
   console.log(`[Setlist.fm Venue Validation] Checking if "${venueName}" in ${city} has concerts...`);
 
+  // Helper function to try searching with a specific venue name
+  const trySearch = async (searchName: string): Promise<{ hasSetlists: boolean; setlistCount: number } | null> => {
+    try {
+      const response = await axios.get("https://api.setlist.fm/rest/1.0/search/setlists", {
+        headers: {
+          "x-api-key": process.env.SETLISTFM_API_KEY!,
+          Accept: "application/json",
+        },
+        params: {
+          venueName: searchName,
+          cityName: city,
+          p: 1, // First page only
+        },
+        timeout: 10000,
+      });
+
+      const setlistCount = response.data.setlist?.length || 0;
+      const hasSetlists = setlistCount > 0;
+
+      return { hasSetlists, setlistCount };
+    } catch (error: any) {
+      // Return null on error to try next variation
+      if (error.response?.status === 404) {
+        return { hasSetlists: false, setlistCount: 0 };
+      }
+      throw error; // Re-throw non-404 errors
+    }
+  };
+
   try {
-    // Search for setlists at this venue
-    // Use a date range of last 10 years to check if this venue hosts concerts
-    const response = await axios.get("https://api.setlist.fm/rest/1.0/search/setlists", {
-      headers: {
-        "x-api-key": process.env.SETLISTFM_API_KEY!,
-        Accept: "application/json",
-      },
-      params: {
-        venueName: venueName,
-        cityName: city,
-        p: 1, // First page only
-      },
-      timeout: 10000,
-    });
+    // FIRST: Try exact venue name
+    let result = await trySearch(venueName);
 
-    const setlistCount = response.data.setlist?.length || 0;
-    const hasSetlists = setlistCount > 0;
-
-    if (hasSetlists) {
-      console.log(`[Setlist.fm Venue Validation] ✓ "${venueName}" HAS ${setlistCount} concerts - VALID concert venue`);
-    } else {
-      console.log(`[Setlist.fm Venue Validation] ✗ "${venueName}" has NO concerts - likely not a concert venue`);
+    if (result && result.hasSetlists) {
+      console.log(`[Setlist.fm Venue Validation] ✓ "${venueName}" HAS ${result.setlistCount} concerts - VALID concert venue`);
+      logExternalApi('Setlist.fm', 'validateVenue', true, `${venueName}: ${result.setlistCount} setlists`, Date.now() - startTime);
+      return result;
     }
 
-    logExternalApi('Setlist.fm', 'validateVenue', true, `${venueName}: ${setlistCount} setlists`, Date.now() - startTime);
+    // SECOND: Try simplified name (remove "at the...", "@ the...", etc.)
+    // Examples: "Showbox at the Market" → "Showbox", "Sphere at The Venetian" → "Sphere"
+    const simplifiedName = venueName
+      .replace(/\s+(at|@)\s+(the\s+)?[\w\s]+$/i, '') // Remove "at the Market", "@ The Venetian", etc.
+      .trim();
 
-    return { hasSetlists, setlistCount };
+    if (simplifiedName !== venueName && simplifiedName.length > 0) {
+      console.log(`[Setlist.fm Venue Validation] No results for "${venueName}", trying simplified: "${simplifiedName}"`);
+      result = await trySearch(simplifiedName);
+
+      if (result && result.hasSetlists) {
+        console.log(`[Setlist.fm Venue Validation] ✓ "${simplifiedName}" HAS ${result.setlistCount} concerts - VALID concert venue`);
+        logExternalApi('Setlist.fm', 'validateVenue', true, `${simplifiedName}: ${result.setlistCount} setlists`, Date.now() - startTime);
+        return result;
+      }
+    }
+
+    // No results found with any variation
+    console.log(`[Setlist.fm Venue Validation] ✗ "${venueName}" has NO concerts - likely not a concert venue`);
+    logExternalApi('Setlist.fm', 'validateVenue', true, `${venueName}: not found`, Date.now() - startTime);
+    return { hasSetlists: false, setlistCount: 0 };
+
   } catch (error: any) {
     const statusCode = error.response?.status;
-    const errorDetails = error.response?.data || error.message;
 
+    // 404 is special case - not an error, just means venue doesn't exist
     if (statusCode === 404) {
-      // 404 means no results found - venue doesn't host concerts
       console.log(`[Setlist.fm Venue Validation] ✗ "${venueName}" not found (404) - not a concert venue`);
       logExternalApi('Setlist.fm', 'validateVenue', true, `${venueName}: not found`, Date.now() - startTime);
       return { hasSetlists: false, setlistCount: 0 };
-    } else if (statusCode === 429) {
-      console.error("[Setlist.fm Venue Validation] ❌ 429 RATE LIMIT EXCEEDED");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('Setlist.fm', 'validateVenue', false, '⚠️ RATE LIMIT EXCEEDED (429)', Date.now() - startTime, `Status: ${statusCode}`);
-    } else if (statusCode === 500) {
-      console.error("[Setlist.fm Venue Validation] ❌ 500 INTERNAL SERVER ERROR");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('Setlist.fm', 'validateVenue', false, '⚠️ INTERNAL SERVER ERROR (500)', Date.now() - startTime, `Status: ${statusCode}`);
-    } else if (statusCode === 504) {
-      console.error("[Setlist.fm Venue Validation] ❌ 504 GATEWAY TIMEOUT");
-      console.error(`[Setlist.fm] Response: ${JSON.stringify(errorDetails)}`);
-      logExternalApi('Setlist.fm', 'validateVenue', false, '⚠️ GATEWAY TIMEOUT (504)', Date.now() - startTime, `Status: ${statusCode}`);
-    } else {
-      console.error(`[Setlist.fm Venue Validation] Error (${statusCode || 'unknown'}):`, errorDetails);
-      logExternalApi('Setlist.fm', 'validateVenue', false, 'Validation failed', Date.now() - startTime, `Status: ${statusCode || 'unknown'}`);
     }
+
+    // All other errors (timeouts, rate limits, etc.)
+    logApiError('Setlist.fm', 'Venue Validation', error, startTime);
 
     // On error, assume venue might be valid (fail open rather than fail closed)
     return { hasSetlists: true, setlistCount: 0 };

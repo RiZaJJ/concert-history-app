@@ -92,8 +92,17 @@ export function completeScanProgress(userId: number): void {
   }
 }
 
-export function getScanProgress(userId: number): ScanProgress | null {
-  return progressStore.get(userId) || null;
+export function getScanProgress(userId: number): (ScanProgress & { elapsedTime: number }) | null {
+  const progress = progressStore.get(userId);
+  if (!progress) return null;
+
+  // Calculate elapsed time in milliseconds
+  const elapsedTime = Date.now() - progress.startedAt.getTime();
+
+  return {
+    ...progress,
+    elapsedTime,
+  };
 }
 
 export function clearScanProgress(userId: number): void {
@@ -109,4 +118,8 @@ export function saveLastScanResult(userId: number, result: Omit<LastScanResult, 
 
 export function getLastScanResult(userId: number): LastScanResult | null {
   return lastScanResults.get(userId) || null;
+}
+
+export function clearLastScanResult(userId: number): void {
+  lastScanResults.delete(userId);
 }

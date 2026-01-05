@@ -28,6 +28,7 @@ export default function Dashboard() {
     linked: number;
     newConcerts: number;
     unmatched: number;
+    duration?: number;
     concerts: Array<{ concertId: number; artistName: string; venueName: string; photoCount: number; isNew: boolean }>;
   } | null>(null);
   const [showSummaryDialog, setShowSummaryDialog] = useState(false);
@@ -36,6 +37,7 @@ export default function Dashboard() {
 
   const { data: concerts, isLoading: concertsLoading } = trpc.concerts.list.useQuery(undefined, { enabled: !!user });
   const { data: unmatchedCount } = trpc.photos.getUnmatchedCount.useQuery(undefined, { enabled: !!user });
+  const { data: noGpsCount } = trpc.photos.getNoGpsCount.useQuery(undefined, { enabled: !!user });
   const { data: lastScanResult } = trpc.photos.getLastScanResult.useQuery(undefined, { enabled: !!user });
   const { data: scanProgress } = trpc.photos.getScanProgress.useQuery(undefined, { enabled: isScanning, refetchInterval: 500 });
   const { data: scanStats } = trpc.photos.getScanStats.useQuery(undefined, { enabled: !!user });
@@ -43,6 +45,8 @@ export default function Dashboard() {
   const scanPhotos = trpc.photos.scanFromDrive.useMutation({
     onMutate: () => setIsScanning(true),
     onSuccess: (stats) => {
+      // Capture final elapsed time before clearing scan state
+      const finalElapsedTime = scanProgress?.elapsedTime;
       setIsScanning(false);
       utils.concerts.list.invalidate();
       utils.photos.getUnmatchedCount.invalidate();
@@ -61,6 +65,7 @@ export default function Dashboard() {
           linked: stats.linked,
           newConcerts: stats.newConcerts,
           unmatched: stats.unmatched,
+          duration: finalElapsedTime,
           concerts: (stats as any).concertsSummary || [],
         });
         setShowSummaryDialog(true);
@@ -212,6 +217,14 @@ export default function Dashboard() {
             <Link href="/photos/review">
               <Button variant="secondary">Review ({unmatchedCount || 0})</Button>
             </Link>
+
+            {noGpsCount && noGpsCount > 0 && (
+              <Link href="/photos/review/no-gps">
+                <Button variant="outline" className="border-orange-500 text-orange-600 hover:bg-orange-50">
+                  No GPS ({noGpsCount})
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 
@@ -227,9 +240,16 @@ export default function Dashboard() {
                       Scanning photo {scanProgress?.currentPhoto || 0} of {scanProgress?.totalPhotos || scanLimit}
                     </span>
                   </div>
-                  <span className="text-sm font-semibold text-blue-600">
-                    {scanProgress ? Math.round((scanProgress.currentPhoto / scanProgress.totalPhotos) * 100) : 0}%
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {scanProgress?.elapsedTime !== undefined && (
+                      <span className="text-sm text-muted-foreground font-mono">
+                        {Math.floor(scanProgress.elapsedTime / 60000)}:{String(Math.floor((scanProgress.elapsedTime % 60000) / 1000)).padStart(2, '0')}
+                      </span>
+                    )}
+                    <span className="text-sm font-semibold text-blue-600">
+                      {scanProgress ? Math.round((scanProgress.currentPhoto / scanProgress.totalPhotos) * 100) : 0}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Progress bar */}
@@ -325,6 +345,11 @@ export default function Dashboard() {
             <DialogTitle>Scan Complete</DialogTitle>
             <DialogDescription>
               {scanSummary?.linked} photos linked, {scanSummary?.unmatched} unmatched
+              {scanSummary?.duration !== undefined && (
+                <span className="block mt-1 text-xs">
+                  Total Time: {Math.floor(scanSummary.duration / 60000)}:{String(Math.floor((scanSummary.duration % 60000) / 1000)).padStart(2, '0')}
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
 

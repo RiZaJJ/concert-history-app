@@ -338,10 +338,23 @@ export default function ConcertDetail() {
         {/* Setlist */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Music className="h-5 w-5" />
-              Setlist
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Music className="h-5 w-5" />
+                Setlist
+              </CardTitle>
+              {concert.setlistFmUrl && (
+                <a
+                  href={concert.setlistFmUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                >
+                  View on setlist.fm
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                </a>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {concert.setlist && concert.setlist.length > 0 ? (

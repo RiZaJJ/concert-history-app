@@ -7,7 +7,7 @@ import axios from 'axios';
 
 // Venue-specific OSM tags we're looking for
 const VENUE_TAGS = {
-  amenity: ['nightclub', 'theater', 'theatre', 'stage', 'events_venue', 'events_centre'],
+  amenity: ['nightclub', 'music_venue', 'theater', 'theatre', 'stage', 'events_venue', 'events_centre'],
   leisure: ['bandstand', 'stadium', 'park'],
 };
 
@@ -27,6 +27,7 @@ interface OSMElement {
 
 interface OSMVenue {
   name: string;
+  altName?: string; // Alternative name from OSM (e.g., "Cape Town Stadium" for "DHL Stadium")
   lat: number;
   lon: number;
   tags: {
@@ -50,113 +51,143 @@ export async function findOSMVenues(
   longitude: string,
   radiusMeters: number = 100
 ): Promise<OSMVenue[]> {
-  try {
-    const lat = parseFloat(latitude);
-    const lon = parseFloat(longitude);
+  const MAX_RETRIES = 2;
+  let lastError: any = null;
 
-    // Build Overpass QL query
-    // Search for nodes, ways, and relations with our venue tags within radius
-    const query = `
-      [out:json][timeout:10];
-      (
-        node(around:${radiusMeters},${lat},${lon})["amenity"~"^(${VENUE_TAGS.amenity.join('|')})$"];
-        way(around:${radiusMeters},${lat},${lon})["amenity"~"^(${VENUE_TAGS.amenity.join('|')})$"];
-        relation(around:${radiusMeters},${lat},${lon})["amenity"~"^(${VENUE_TAGS.amenity.join('|')})$"];
-        node(around:${radiusMeters},${lat},${lon})["leisure"~"^(${VENUE_TAGS.leisure.join('|')})$"];
-        way(around:${radiusMeters},${lat},${lon})["leisure"~"^(${VENUE_TAGS.leisure.join('|')})$"];
-        relation(around:${radiusMeters},${lat},${lon})["leisure"~"^(${VENUE_TAGS.leisure.join('|')})$"];
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const lat = parseFloat(latitude);
+      const lon = parseFloat(longitude);
+
+      // Build Overpass QL query
+      // Search for nodes, ways, and relations with our venue tags within radius
+      const query = `
+        [out:json][timeout:10];
+        (
+          node(around:${radiusMeters},${lat},${lon})["amenity"~"^(${VENUE_TAGS.amenity.join('|')})$"];
+          way(around:${radiusMeters},${lat},${lon})["amenity"~"^(${VENUE_TAGS.amenity.join('|')})$"];
+          relation(around:${radiusMeters},${lat},${lon})["amenity"~"^(${VENUE_TAGS.amenity.join('|')})$"];
+          node(around:${radiusMeters},${lat},${lon})["leisure"~"^(${VENUE_TAGS.leisure.join('|')})$"];
+          way(around:${radiusMeters},${lat},${lon})["leisure"~"^(${VENUE_TAGS.leisure.join('|')})$"];
+          relation(around:${radiusMeters},${lat},${lon})["leisure"~"^(${VENUE_TAGS.leisure.join('|')})$"];
+        );
+        out center tags;
+      `;
+
+      const attemptMsg = attempt > 1 ? ` (attempt ${attempt}/${MAX_RETRIES})` : '';
+      console.log(`[OSM Venue Detection] Querying Overpass API for venues within ${radiusMeters}m of ${lat}, ${lon}${attemptMsg}`);
+
+      const response = await axios.post(
+        'https://overpass-api.de/api/interpreter',
+        query,
+        {
+          headers: { 'Content-Type': 'text/plain' },
+          timeout: 15000,
+        }
       );
-      out center tags;
-    `;
 
-    console.log(`[OSM Venue Detection] Querying Overpass API for venues within ${radiusMeters}m of ${lat}, ${lon}`);
+      const elements: OSMElement[] = response.data.elements || [];
+      console.log(`[OSM Venue Detection] Found ${elements.length} OSM elements`);
 
-    const response = await axios.post(
-      'https://overpass-api.de/api/interpreter',
-      query,
-      {
-        headers: { 'Content-Type': 'text/plain' },
-        timeout: 15000,
+      // Filter and transform results
+      const venues: OSMVenue[] = [];
+
+      for (const element of elements) {
+        // Skip elements without names
+        if (!element.tags?.name) {
+          console.log(`[OSM Venue Detection] Skipping unnamed element ${element.id}`);
+          continue;
+        }
+
+        // Get coordinates (nodes have lat/lon, ways/relations have center)
+        const elementLat = element.lat || element.center?.lat;
+        const elementLon = element.lon || element.center?.lon;
+
+        if (!elementLat || !elementLon) {
+          console.log(`[OSM Venue Detection] Skipping element ${element.id} without coordinates`);
+          continue;
+        }
+
+        // Determine which tag matched
+        let matchedTag = '';
+        if (element.tags.amenity && VENUE_TAGS.amenity.includes(element.tags.amenity)) {
+          matchedTag = `amenity=${element.tags.amenity}`;
+        } else if (element.tags.leisure && VENUE_TAGS.leisure.includes(element.tags.leisure)) {
+          matchedTag = `leisure=${element.tags.leisure}`;
+        }
+
+        if (!matchedTag) {
+          console.log(`[OSM Venue Detection] Element ${element.id} has no matching venue tags`);
+          continue;
+        }
+
+        // Calculate distance from query point
+        const lat = parseFloat(latitude);
+        const lon = parseFloat(longitude);
+        const distance = calculateDistance(lat, lon, elementLat, elementLon);
+
+        // Capture alt_name if available (critical for venue matching)
+        const altName = element.tags.alt_name;
+
+        venues.push({
+          name: element.tags.name,
+          altName,
+          lat: elementLat,
+          lon: elementLon,
+          tags: element.tags,
+          matchedTag,
+          distance,
+        });
+
+        const altNameInfo = altName ? ` [alt: "${altName}"]` : '';
+        console.log(`[OSM Venue Detection] Found venue: ${element.tags.name}${altNameInfo} (${matchedTag}, ${distance.toFixed(0)}m away)`);
       }
-    );
 
-    const elements: OSMElement[] = response.data.elements || [];
-    console.log(`[OSM Venue Detection] Found ${elements.length} OSM elements`);
+      // Sort by distance (closest first)
+      venues.sort((a, b) => a.distance - b.distance);
 
-    // Filter and transform results
-    const venues: OSMVenue[] = [];
+      console.log(`[OSM Venue Detection] ✓ Returning ${venues.length} venues`);
+      return venues;
 
-    for (const element of elements) {
-      // Skip elements without names
-      if (!element.tags?.name) {
-        console.log(`[OSM Venue Detection] Skipping unnamed element ${element.id}`);
-        continue;
+    } catch (error: any) {
+      lastError = error;
+      const statusCode = error.response?.status || error.code;
+      const errorDetails = error.response?.data || error.message;
+
+      // Check if this is a retryable error (504 timeout)
+      const isRetryable = statusCode === 504 || error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT';
+
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const waitTime = 2000 * attempt; // 2s, 4s, etc.
+        console.error(`[OSM Overpass API] ⚠️  ${statusCode === 504 ? 'GATEWAY TIMEOUT' : 'REQUEST TIMEOUT'} - Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue; // Retry
       }
 
-      // Get coordinates (nodes have lat/lon, ways/relations have center)
-      const elementLat = element.lat || element.center?.lat;
-      const elementLon = element.lon || element.center?.lon;
-
-      if (!elementLat || !elementLon) {
-        console.log(`[OSM Venue Detection] Skipping element ${element.id} without coordinates`);
-        continue;
+      // Last attempt or non-retryable error - log and break
+      if (statusCode === 429) {
+        console.error("[OSM Overpass API] ❌ 429 RATE LIMIT EXCEEDED - Too many requests");
+        console.error(`[OSM Overpass] Response: ${JSON.stringify(errorDetails)}`);
+      } else if (statusCode === 500) {
+        console.error("[OSM Overpass API] ❌ 500 INTERNAL SERVER ERROR - Overpass server issue");
+        console.error(`[OSM Overpass] Response: ${JSON.stringify(errorDetails)}`);
+      } else if (statusCode === 504) {
+        console.error("[OSM Overpass API] ❌ 504 GATEWAY TIMEOUT - Query took too long (after ${attempt} attempts)");
+        console.error(`[OSM Overpass] Response: ${JSON.stringify(errorDetails)}`);
+        console.error(`[OSM Overpass] Query may be too complex or server is overloaded`);
+      } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        console.error(`[OSM Overpass API] ❌ REQUEST TIMEOUT - Client-side timeout after 15s (after ${attempt} attempts)`);
+      } else {
+        console.error(`[OSM Overpass API] Error (${statusCode || error.code || 'unknown'}):`, errorDetails);
       }
 
-      // Determine which tag matched
-      let matchedTag = '';
-      if (element.tags.amenity && VENUE_TAGS.amenity.includes(element.tags.amenity)) {
-        matchedTag = `amenity=${element.tags.amenity}`;
-      } else if (element.tags.leisure && VENUE_TAGS.leisure.includes(element.tags.leisure)) {
-        matchedTag = `leisure=${element.tags.leisure}`;
-      }
-
-      if (!matchedTag) {
-        console.log(`[OSM Venue Detection] Element ${element.id} has no matching venue tags`);
-        continue;
-      }
-
-      // Calculate distance from query point
-      const distance = calculateDistance(lat, lon, elementLat, elementLon);
-
-      venues.push({
-        name: element.tags.name,
-        lat: elementLat,
-        lon: elementLon,
-        tags: element.tags,
-        matchedTag,
-        distance,
-      });
-
-      console.log(`[OSM Venue Detection] Found venue: ${element.tags.name} (${matchedTag}, ${distance.toFixed(0)}m away)`);
+      break; // Exit retry loop
     }
-
-    // Sort by distance (closest first)
-    venues.sort((a, b) => a.distance - b.distance);
-
-    console.log(`[OSM Venue Detection] Returning ${venues.length} venues`);
-    return venues;
-  } catch (error: any) {
-    const statusCode = error.response?.status || error.code;
-    const errorDetails = error.response?.data || error.message;
-
-    if (statusCode === 429) {
-      console.error("[OSM Overpass API] ❌ 429 RATE LIMIT EXCEEDED - Too many requests");
-      console.error(`[OSM Overpass] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 500) {
-      console.error("[OSM Overpass API] ❌ 500 INTERNAL SERVER ERROR - Overpass server issue");
-      console.error(`[OSM Overpass] Response: ${JSON.stringify(errorDetails)}`);
-    } else if (statusCode === 504) {
-      console.error("[OSM Overpass API] ❌ 504 GATEWAY TIMEOUT - Query took too long");
-      console.error(`[OSM Overpass] Response: ${JSON.stringify(errorDetails)}`);
-      console.error(`[OSM Overpass] Query may be too complex or server is overloaded`);
-    } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-      console.error("[OSM Overpass API] ❌ REQUEST TIMEOUT - Client-side timeout after 15s");
-    } else {
-      console.error(`[OSM Overpass API] Error (${statusCode || error.code || 'unknown'}):`, errorDetails);
-    }
-
-    return [];
   }
+
+  // All retries exhausted
+  console.error(`[OSM Venue Detection] Failed after ${MAX_RETRIES} attempts - returning empty results`);
+  return [];
 }
 
 /**
@@ -204,11 +235,26 @@ export async function findBestOSMVenue(
     const { validateVenueOnSetlistFm } = await import('./integrations');
 
     for (const venue of venues.slice(0, 5)) {
-      const validation = await validateVenueOnSetlistFm(venue.name, city);
+      // Try primary name first
+      let validation = await validateVenueOnSetlistFm(venue.name, city);
+      let selectedName = venue.name;
+
+      // If no setlists found but there's an alt_name, try that too
+      if (!validation.hasSetlists && venue.altName) {
+        console.log(`[OSM Venue Detection] No setlists for "${venue.name}", trying alt_name: "${venue.altName}"`);
+        const altValidation = await validateVenueOnSetlistFm(venue.altName, city);
+
+        if (altValidation.hasSetlists) {
+          validation = altValidation;
+          selectedName = venue.altName;
+          console.log(`[OSM Venue Detection] ✓ Found setlists using alt_name!`);
+        }
+      }
 
       if (validation.hasSetlists) {
         // Found a venue with setlists! Use this one.
-        console.log(`[OSM Venue Detection] ✓ Selected "${venue.name}" (${venue.distance.toFixed(0)}m away, ${validation.setlistCount} concerts on setlist.fm)`);
+        const nameInfo = selectedName !== venue.name ? ` (using alt_name: "${selectedName}")` : '';
+        console.log(`[OSM Venue Detection] ✓ Selected "${selectedName}" (${venue.distance.toFixed(0)}m away, ${validation.setlistCount} concerts on setlist.fm)${nameInfo}`);
 
         // Determine confidence based on distance + setlist.fm presence
         let confidence = 'high';
@@ -220,12 +266,14 @@ export async function findBestOSMVenue(
         }
 
         return {
-          name: venue.name,
+          name: selectedName,
+          altName: selectedName === venue.name ? venue.altName : venue.name, // Store the other name as alt
           method: 'osm_scan_validated',
           confidence
         };
       } else {
-        console.log(`[OSM Venue Detection] ✗ Skipping "${venue.name}" (${venue.distance.toFixed(0)}m) - no concerts on setlist.fm`);
+        const altInfo = venue.altName ? ` (and alt_name: "${venue.altName}")` : '';
+        console.log(`[OSM Venue Detection] ✗ Skipping "${venue.name}"${altInfo} (${venue.distance.toFixed(0)}m) - no concerts on setlist.fm`);
       }
     }
 
@@ -244,6 +292,7 @@ export async function findBestOSMVenue(
 
     return {
       name: best.name,
+      altName: best.altName,
       method: `osm_${best.matchedTag.replace('=', '_')}`,
       confidence,
     };

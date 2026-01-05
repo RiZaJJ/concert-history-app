@@ -64,6 +64,9 @@ function normalizeVenueName(name: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     // Remove common venue name prefixes
     .replace(/^(william randolph hearst|the)\s+/gi, '')
+    // Remove location suffixes like "at the Market", "@ The Venetian", etc.
+    // Examples: "Showbox at the Market" → "Showbox", "Sphere at The Venetian" → "Sphere"
+    .replace(/\s+(at|@)\s+(the\s+)?[\w\s]+$/i, '')
     // Remove common venue type suffixes
     .replace(/\b(amphitheatre|amphitheater|theater|theatre|venue|winery|arena|stadium|hall|center|centre|auditorium|pavilion)\b/gi, '')
     // Remove punctuation (EXPANDED: now includes apostrophes, quotes, and more special chars)

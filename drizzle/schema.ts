@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean, index, uniqueIndex, tinyint } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -42,6 +42,7 @@ export type InsertArtist = typeof artists.$inferInsert;
 export const venues = mysqlTable("venues", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
+  altName: varchar("altName", { length: 255 }), // Alternative name from OSM (e.g., "Cape Town Stadium")
   city: varchar("city", { length: 100 }).notNull(),
   state: varchar("state", { length: 100 }),
   country: varchar("country", { length: 100 }).notNull(),
@@ -81,7 +82,8 @@ export const concerts = mysqlTable("concerts", {
   // Metadata
   notes: text("notes"),
   setlistFmId: varchar("setlistFmId", { length: 64 }), // ID from setlist.fm
-  
+  setlistFmUrl: text("setlistFmUrl"), // URL to setlist.fm page
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -202,6 +204,7 @@ export const unmatchedPhotos = mysqlTable("unmatched_photos", {
   // Status
   reviewed: mysqlEnum("reviewed", ["pending", "skipped", "linked"]).default("pending").notNull(),
   linkedConcertId: int("linkedConcertId"),
+  noGps: tinyint("noGps").default(0).notNull(), // 1 if photo lacks GPS data (needs special handling)
   
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
