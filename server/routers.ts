@@ -460,6 +460,26 @@ export const appRouter = router({
       return await db.getNoGpsPhotosCount(ctx.user.id);
     }),
 
+    getAmbiguousPhotos: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getAmbiguousPhotos(ctx.user.id);
+    }),
+
+    getAmbiguousCount: protectedProcedure.query(async ({ ctx }) => {
+      return await db.getAmbiguousPhotosCount(ctx.user.id);
+    }),
+
+    assignAmbiguousPhoto: protectedProcedure
+      .input(z.object({ photoId: z.number(), concertId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const photo = await db.getUnmatchedPhotoById(input.photoId);
+        if (!photo || photo.userId !== ctx.user.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Photo not found" });
+        }
+
+        // Move the ambiguous photo to the selected concert
+        return await db.moveUnmatchedToConcert(input.photoId, input.concertId);
+      }),
+
     matchUnmatched: protectedProcedure
       .input(z.object({ unmatchedPhotoId: z.number(), concertId: z.number() }))
       .mutation(async ({ input }) => {

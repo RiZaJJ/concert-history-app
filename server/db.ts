@@ -424,6 +424,40 @@ export async function getNoGpsPhotosCount(userId: number) {
   return count;
 }
 
+export async function getAmbiguousPhotos(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Fetch photos with ambiguous status (multiple concerts on same date)
+  const results = await db.select().from(schema.unmatchedPhotos).where(
+    and(
+      eq(schema.unmatchedPhotos.userId, userId),
+      eq(schema.unmatchedPhotos.reviewed, "ambiguous")
+    )
+  ).orderBy(desc(schema.unmatchedPhotos.takenAt));
+
+  logDbRead('unmatchedPhotos', 'getAmbiguousPhotos', `userId=${userId}`, results.length, userId);
+  return results;
+}
+
+export async function getAmbiguousPhotosCount(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const results = await db.select({ count: sql<number>`count(*)` })
+    .from(schema.unmatchedPhotos)
+    .where(
+      and(
+        eq(schema.unmatchedPhotos.userId, userId),
+        eq(schema.unmatchedPhotos.reviewed, "ambiguous")
+      )
+    );
+
+  const count = results[0]?.count || 0;
+  logDbRead('unmatchedPhotos', 'getAmbiguousPhotosCount', `userId=${userId}`, count, userId);
+  return count;
+}
+
 export async function getConcertPhotos(concertId: number) {
   const db = await getDb();
   if (!db) return [];
