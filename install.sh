@@ -1,10 +1,10 @@
 #!/bin/bash
 # One-line installer for Concert History App
-# Usage: curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/concert-history-app/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/RiZaJJ/concert-history-app/main/install.sh | bash
 
 set -e
 
-REPO_URL="https://github.com/YOUR_USERNAME/concert-history-app.git"
+REPO_URL="https://github.com/RiZaJJ/concert-history-app.git"
 INSTALL_DIR="$HOME/concert-history-app"
 
 echo "🎵 Concert History App - One-Line Installer"

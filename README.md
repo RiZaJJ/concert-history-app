@@ -88,7 +88,7 @@ The following API credentials are required:
 **Option 1: One-Line Install (Recommended)**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/concert-history-app/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/RiZaJJ/concert-history-app/main/install.sh | bash
 ```
 
 This will:
@@ -102,7 +102,7 @@ This will:
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/concert-history-app.git
+git clone https://github.com/RiZaJJ/concert-history-app.git
 cd concert-history-app
 
 # Run automated setup
