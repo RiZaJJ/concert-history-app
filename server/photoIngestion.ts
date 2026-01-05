@@ -114,6 +114,10 @@ async function autoDetectConcert(
   detectedVenueName?: string | null
 ): Promise<{ id: number; artist: string; venue: string } | null> {
   try {
+    // IMPORTANT: Adjust date for midnight concerts (00:00-04:00 treated as previous day)
+    const adjustedDate = adjustDateForMidnight(date);
+    console.log(`[Concert Matching] Original date: ${date.toISOString()}, Adjusted date: ${adjustedDate.toISOString()}`);
+
     // STEP 1: Check user's existing concerts FIRST before going to setlist.fm
     console.log(`[Concert Matching] Checking user's database for existing concerts near GPS coordinates...`);
 
@@ -122,9 +126,9 @@ async function autoDetectConcert(
     if (nearbyVenues.length > 0) {
       console.log(`[Concert Matching] Found ${nearbyVenues.length} venues in database within 2000m`);
 
-      // Check each venue for a concert on this date
+      // Check each venue for a concert on this date (using adjusted date)
       for (const venue of nearbyVenues) {
-        const existingConcert = await db.findConcert(userId, venue.id, date);
+        const existingConcert = await db.findConcert(userId, venue.id, adjustedDate);
 
         if (existingConcert) {
           // Found an existing concert at this venue on this date!
@@ -157,7 +161,7 @@ async function autoDetectConcert(
     }
 
     console.log(`[Concert Matching] Searching setlist.fm for new concerts...`);
-    const result = await searchSetlistsByDateAndLocation(date, latitude, longitude, detectedVenueName);
+    const result = await searchSetlistsByDateAndLocation(adjustedDate, latitude, longitude, detectedVenueName);
     if (!result.setlists || result.setlists.length === 0) return null;
 
     // If multiple setlists found on same date/venue, try to pick the headliner
@@ -177,9 +181,10 @@ async function autoDetectConcert(
       });
 
       // Strategy: Use photo timestamp to differentiate opener vs headliner
+      // Use original date (not adjusted) since we want actual photo time
       const photoHour = date.getHours();
       const photoTime = `${photoHour}:${String(date.getMinutes()).padStart(2, '0')}`;
-      console.log(`[Concert Matching] Photo timestamp: ${photoTime}`);
+      console.log(`[Concert Matching] Photo timestamp: ${photoTime} (original, not adjusted)`);
 
       // Sort by song count (descending - longest first)
       const sortedByLength = [...setlistsWithInfo].sort((a, b) => b.songCount - a.songCount);
@@ -295,12 +300,14 @@ function findMatchingConcertFromList(
   latitude?: string,
   longitude?: string
 ): number | null {
-  const photoTime = takenAt.getTime();
-  const eighteenHours = 18 * 60 * 60 * 1000;
+  // Adjust photo date for midnight concerts
+  const adjustedPhotoDate = adjustDateForMidnight(takenAt);
+  const photoDateKey = adjustedPhotoDate.toISOString().split('T')[0];
 
+  // Find concerts on the same adjusted date
   const sameDateConcerts = concerts.filter(concert => {
-    const timeDiff = Math.abs(photoTime - new Date(concert.concertDate).getTime());
-    return timeDiff <= eighteenHours;
+    const concertDateKey = new Date(concert.concertDate).toISOString().split('T')[0];
+    return concertDateKey === photoDateKey;
   });
 
   if (sameDateConcerts.length === 0) return null;

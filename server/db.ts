@@ -762,24 +762,33 @@ export async function findSimilarUnmatchedPhotos(targetDate: Date | null, target
   const db = await getDb();
   if (!db) return [];
 
+  // Import midnight adjustment
+  const { adjustDateForMidnight } = await import('./photoIngestion');
+
   const allPhotos = await db.select().from(schema.unmatchedPhotos).where(
     and(eq(schema.unmatchedPhotos.userId, userId), eq(schema.unmatchedPhotos.reviewed, "pending"))
   );
 
-  const targetDateStr = targetDate.toISOString().split('T')[0];
+  // Adjust target date for midnight concerts
+  const adjustedTargetDate = adjustDateForMidnight(targetDate);
+  const targetDateStr = adjustedTargetDate.toISOString().split('T')[0];
   const targetLatNum = parseFloat(targetLat);
   const targetLonNum = parseFloat(targetLon);
 
   const similar = allPhotos.filter(photo => {
     if (!photo.takenAt || !photo.latitude || !photo.longitude) return false;
-    const photoDateStr = new Date(photo.takenAt).toISOString().split('T')[0];
+
+    // Adjust each photo's date for midnight
+    const adjustedPhotoDate = adjustDateForMidnight(new Date(photo.takenAt));
+    const photoDateStr = adjustedPhotoDate.toISOString().split('T')[0];
+
     if (photoDateStr !== targetDateStr) return false;
     const latDiff = Math.abs(parseFloat(photo.latitude) - targetLatNum);
     const lonDiff = Math.abs(parseFloat(photo.longitude) - targetLonNum);
     return latDiff < 0.001 && lonDiff < 0.001;
   });
 
-  logDbRead('unmatchedPhotos', 'findSimilarUnmatchedPhotos', `date=${targetDateStr}`, similar.length);
+  logDbRead('unmatchedPhotos', 'findSimilarUnmatchedPhotos', `date=${targetDateStr} (adjusted)`, similar.length);
   return similar;
 }
 
