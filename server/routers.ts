@@ -1060,13 +1060,59 @@ export const appRouter = router({
           // Find or create venue
           let venue = await db.findVenueByNameAndCity(venueName, cityName);
           if (!venue) {
+            // IMPORTANT: Look up actual venue GPS from setlist.fm/OSM, don't use photo GPS!
+            let venueLatitude: string | undefined = undefined;
+            let venueLongitude: string | undefined = undefined;
+
+            // Try to get GPS from setlist.fm venue data first
+            if (setlistData.venue?.city?.coords?.lat && setlistData.venue?.city?.coords?.long) {
+              console.log(`[searchConcertsForPhoto] ⚠️ Setlist.fm has city coords (not venue coords) - will NOT use them`);
+              // setlist.fm only has CITY coordinates, not venue coordinates - these are unreliable!
+            }
+
+            // Try to get accurate GPS from OSM
+            if (unmatchedPhoto.latitude && unmatchedPhoto.longitude) {
+              try {
+                const { findNearbyVenue } = await import("./integrations");
+                const { isFuzzyVenueMatch } = await import("./fuzzyMatch");
+                console.log(`[searchConcertsForPhoto] Looking up actual venue GPS from OSM...`);
+
+                const osmVenue = await findNearbyVenue(
+                  unmatchedPhoto.latitude,
+                  unmatchedPhoto.longitude,
+                  cityName
+                );
+
+                if (osmVenue && isFuzzyVenueMatch(venueName, osmVenue.name, 70)) {
+                  const { findVenueByNameInOSM } = await import("./osmVenueDetection");
+                  const venueDetails = await findVenueByNameInOSM(
+                    unmatchedPhoto.latitude,
+                    unmatchedPhoto.longitude,
+                    osmVenue.name
+                  );
+
+                  if (venueDetails) {
+                    venueLatitude = venueDetails.lat;
+                    venueLongitude = venueDetails.lon;
+                    console.log(`[searchConcertsForPhoto] ✓ Found venue GPS from OSM: ${venueLatitude}, ${venueLongitude}`);
+                  }
+                }
+              } catch (error) {
+                console.warn(`[searchConcertsForPhoto] Could not look up venue GPS:`, error);
+              }
+            }
+
             venue = await db.createVenue({
               name: venueName,
               city: cityName,
               country: countryCode || "Unknown",
-              latitude: unmatchedPhoto.latitude || undefined,
-              longitude: unmatchedPhoto.longitude || undefined,
+              latitude: venueLatitude,
+              longitude: venueLongitude,
             });
+
+            if (!venueLatitude) {
+              console.log(`[searchConcertsForPhoto] ⚠️ Created venue "${venueName}" WITHOUT GPS`);
+            }
           }
 
           // Check if concert already exists
@@ -1116,6 +1162,32 @@ export const appRouter = router({
             }
           } else {
             console.log(`[searchConcertsForPhoto] Concert already exists ID: ${concert.id}`);
+          }
+
+          // GPS PROXIMITY CHECK: Verify photo is actually near this venue
+          if (unmatchedPhoto.latitude && unmatchedPhoto.longitude && venue.latitude && venue.longitude) {
+            const photoLat = parseFloat(unmatchedPhoto.latitude);
+            const photoLon = parseFloat(unmatchedPhoto.longitude);
+            const venueLat = parseFloat(venue.latitude);
+            const venueLon = parseFloat(venue.longitude);
+
+            const latDiff = Math.abs(venueLat - photoLat);
+            const lonDiff = Math.abs(venueLon - photoLon);
+
+            // Check if photo is within ~1km of venue (0.01° ≈ 1km)
+            if (latDiff > 0.01 || lonDiff > 0.01) {
+              console.error(`[searchConcertsForPhoto] ❌ GPS MISMATCH - Photo is ${latDiff.toFixed(4)}° lat, ${lonDiff.toFixed(4)}° lon away from venue`);
+              console.error(`[searchConcertsForPhoto]    Photo GPS: ${photoLat}, ${photoLon}`);
+              console.error(`[searchConcertsForPhoto]    Venue GPS: ${venueLat}, ${venueLon}`);
+              console.error(`[searchConcertsForPhoto]    Distance: ~${(latDiff * 111).toFixed(1)}km lat, ~${(lonDiff * 111 * Math.cos(photoLat * Math.PI / 180)).toFixed(1)}km lon`);
+
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `GPS mismatch: Photo location is ~${Math.round(Math.sqrt(Math.pow(latDiff * 111, 2) + Math.pow(lonDiff * 111 * Math.cos(photoLat * Math.PI / 180), 2)))}km from ${venueName}. This photo appears to be from a different location.`
+              });
+            }
+
+            console.log(`[searchConcertsForPhoto] ✓ GPS proximity check passed (${latDiff.toFixed(4)}° lat, ${lonDiff.toFixed(4)}° lon away)`);
           }
 
           // Link photo to concert
