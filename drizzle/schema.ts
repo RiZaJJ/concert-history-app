@@ -202,8 +202,9 @@ export const unmatchedPhotos = mysqlTable("unmatched_photos", {
   venueConfidence: varchar("venueConfidence", { length: 20 }), // 'high', 'medium', 'low'
   
   // Status
-  reviewed: mysqlEnum("reviewed", ["pending", "skipped", "linked"]).default("pending").notNull(),
+  reviewed: mysqlEnum("reviewed", ["pending", "skipped", "linked", "ambiguous"]).default("pending").notNull(),
   linkedConcertId: int("linkedConcertId"),
+  possibleConcertIds: text("possibleConcertIds"), // JSON array of concert IDs when ambiguous (e.g., "[1,2]" for opener vs headliner)
   noGps: tinyint("noGps").default(0).notNull(), // 1 if photo lacks GPS data (needs special handling)
   
   createdAt: timestamp("createdAt").defaultNow().notNull(),

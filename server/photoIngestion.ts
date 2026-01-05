@@ -651,7 +651,9 @@ export async function scanAndIngestPhotos(userId: number, limit?: number): Promi
                 ...stats
               });
             } else if (concertsOnDate.length > 1) {
-              console.log(`[PhotoIngestion] No GPS photo on date with ${concertsOnDate.length} concerts - needs manual review`);
+              console.log(`[PhotoIngestion] No GPS photo on date with ${concertsOnDate.length} concerts - marking as ambiguous for manual selection`);
+              // Store concert options for later disambiguation
+              group.ambiguousConcertIds = concertsOnDate.map(c => c.id);
             } else {
               console.log(`[PhotoIngestion] No GPS photo with no concerts on this date - needs manual review`);
             }
@@ -671,6 +673,7 @@ export async function scanAndIngestPhotos(userId: number, limit?: number): Promi
         if (!concertId) {
           // Create unmatched photo with cached location data and detected venue
           const noGps = !photo.exif.latitude || !photo.exif.longitude ? 1 : 0;
+          const isAmbiguous = group.ambiguousConcertIds && group.ambiguousConcertIds.length > 0;
 
           await db.createUnmatchedPhoto({
             userId,
@@ -689,12 +692,14 @@ export async function scanAndIngestPhotos(userId: number, limit?: number): Promi
             venueDetectionMethod: group.detectedVenue ? 'osm_scan' : null,
             venueConfidence: group.detectedVenue ? 'high' : null,
             noGps,
+            reviewed: isAmbiguous ? 'ambiguous' : 'pending',
+            possibleConcertIds: isAmbiguous ? JSON.stringify(group.ambiguousConcertIds) : null,
           });
           stats.unmatched++;
 
-          // Update progress with unmatched status
+          // Update progress with status
           updateScanProgress(userId, {
-            currentStatus: 'Unmatched - needs review',
+            currentStatus: isAmbiguous ? 'Ambiguous - multiple concerts' : 'Unmatched - needs review',
             ...stats
           });
         } else {
