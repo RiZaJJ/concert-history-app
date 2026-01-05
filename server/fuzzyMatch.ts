@@ -86,24 +86,50 @@ function normalizeVenueName(name: string): string {
  */
 export function isFuzzyVenueMatch(name1: string, name2: string, threshold: number = 70): boolean {
   if (!name1 || !name2) return false;
-  
+
   // Exact match
   if (name1.toLowerCase() === name2.toLowerCase()) return true;
-  
+
   // Normalize and compare
   const normalized1 = normalizeVenueName(name1);
   const normalized2 = normalizeVenueName(name2);
-  
+
   // Check if one is a substring of the other (after normalization)
   if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
     return true;
   }
-  
+
+  // Try extracting core venue names and compare those
+  // "The Mann Center" vs "TD Pavillion at the Mann" → both extract to "Mann"
+  // Import dynamically to avoid circular dependency
+  let extractCoreVenueName: (name: string) => string;
+  try {
+    const setlistMatcher = require('./setlistMatcher');
+    extractCoreVenueName = setlistMatcher.extractCoreVenueName;
+  } catch {
+    // Fallback if import fails
+    extractCoreVenueName = (name: string) => name;
+  }
+
+  const core1 = normalizeVenueName(extractCoreVenueName(name1));
+  const core2 = normalizeVenueName(extractCoreVenueName(name2));
+
+  if (core1 === core2 && core1.length >= 4) {
+    console.log(`[Fuzzy Match] Core name match: "${name1}" vs "${name2}" → "${core1}"`);
+    return true;
+  }
+
+  // Check if either core name is substring of the other normalized name
+  if (core1.length >= 4 && (normalized2.includes(core1) || normalized1.includes(core2))) {
+    console.log(`[Fuzzy Match] Core name substring match: "${name1}" vs "${name2}"`);
+    return true;
+  }
+
   // Calculate similarity score
   const similarity = stringSimilarity(normalized1, normalized2);
-  
+
   console.log(`[Fuzzy Match] "${name1}" vs "${name2}": ${similarity}% (threshold: ${threshold}%)`);
-  
+
   return similarity >= threshold;
 }
 
