@@ -347,18 +347,37 @@ function findMatchingConcertFromList(
 
   if (sameDateConcerts.length === 0) return null;
 
-  if (latitude && longitude && sameDateConcerts.length > 1) {
+  // ALWAYS check GPS proximity if GPS data is available (regardless of concert count)
+  // This prevents matching photos to concerts thousands of miles away!
+  if (latitude && longitude) {
     for (const concert of sameDateConcerts) {
       const venue = venueMap.get(concert.venueId);
       if (venue?.latitude && venue?.longitude) {
-        if (Math.abs(parseFloat(venue.latitude) - parseFloat(latitude)) < 0.01 &&
-            Math.abs(parseFloat(venue.longitude) - parseFloat(longitude)) < 0.01) {
+        // Check if venue is within ~1km of photo GPS
+        const latDiff = Math.abs(parseFloat(venue.latitude) - parseFloat(latitude));
+        const lonDiff = Math.abs(parseFloat(venue.longitude) - parseFloat(longitude));
+        if (latDiff < 0.01 && lonDiff < 0.01) {
+          console.log(`[Match] Found GPS match: ${venue.name} (${latDiff.toFixed(4)}° lat, ${lonDiff.toFixed(4)}° lon away)`);
           return concert.id;
+        } else {
+          console.log(`[Match] GPS mismatch: ${venue.name} is ${latDiff.toFixed(2)}° lat, ${lonDiff.toFixed(2)}° lon away - skipping`);
         }
       }
     }
+    // No GPS match found - don't auto-link
+    console.log(`[Match] No concerts found within GPS proximity on ${photoDateKey}`);
+    return null;
   }
-  return sameDateConcerts[0]?.id || null;
+
+  // No GPS data - return first concert on date (only if single concert)
+  if (sameDateConcerts.length === 1) {
+    console.log(`[Match] No GPS data, single concert on date - auto-linking`);
+    return sameDateConcerts[0].id;
+  }
+
+  // Multiple concerts, no GPS - can't determine which one
+  console.log(`[Match] Multiple concerts on date, no GPS - cannot auto-link`);
+  return null;
 }
 
 export async function scanAndIngestPhotos(userId: number, limit?: number): Promise<any> {
