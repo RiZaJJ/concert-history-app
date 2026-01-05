@@ -189,7 +189,7 @@ export async function findSetlistWithAllCombinations(params: {
     try {
       console.log(`[SetlistMatcher] Trying: ${attempt.name}`);
       const result = await attempt.fn();
-      
+
       if (result && result.venue) {
         console.log(`[SetlistMatcher] ✓ Found match with: ${attempt.name}`);
         return result;
@@ -197,10 +197,16 @@ export async function findSetlistWithAllCombinations(params: {
         console.log(`[SetlistMatcher] ✗ No match with: ${attempt.name}`);
       }
     } catch (error: any) {
+      // CIRCUIT BREAKER: Stop immediately on rate limit errors
+      if (error.response?.status === 429 || error.message?.includes('429')) {
+        console.error(`[SetlistMatcher] ⚠️ RATE LIMIT HIT - Stopping all searches to avoid API ban`);
+        return null;
+      }
+
       console.log(`[SetlistMatcher] ✗ Error with ${attempt.name}:`, error.message);
     }
   }
-  
+
   console.log(`[SetlistMatcher] No matches found after trying all combinations`);
   return null;
 }

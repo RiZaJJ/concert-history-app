@@ -915,59 +915,7 @@ export const appRouter = router({
           }
         }
 
-        // FOURTH: Try adding common venue suffixes (handles "Gorge" → "The Gorge Amphitheatre", "Nectar" → "Nectar Lounge")
-        if (!setlistData && venueName) {
-          const commonSuffixes = ['Amphitheatre', 'Amphitheater', 'Lounge', 'Theater', 'Theatre', 'Hall', 'Ballroom', 'Arena', 'Stadium', 'Center', 'Venue'];
-
-          for (const suffix of commonSuffixes) {
-            // Try with "The" prefix and suffix
-            const withTheAndSuffix = `The ${venueName} ${suffix}`;
-            console.log(`[searchConcertsForPhoto] Trying with prefix+suffix: "${withTheAndSuffix}"`);
-            setlistData = await findSetlistWithAllCombinations({
-              venueName: withTheAndSuffix,
-              concertDate: localDate || undefined,
-              city: city || undefined,
-              latitude: latitude || undefined,
-              longitude: longitude || undefined,
-            });
-            if (setlistData) {
-              console.log(`[searchConcertsForPhoto] ✓ Found match with "${withTheAndSuffix}"!`);
-              break;
-            }
-
-            // Try with just suffix (no "The")
-            const withSuffix = `${venueName} ${suffix}`;
-            console.log(`[searchConcertsForPhoto] Trying with suffix: "${withSuffix}"`);
-            setlistData = await findSetlistWithAllCombinations({
-              venueName: withSuffix,
-              concertDate: localDate || undefined,
-              city: city || undefined,
-              latitude: latitude || undefined,
-              longitude: longitude || undefined,
-            });
-            if (setlistData) {
-              console.log(`[searchConcertsForPhoto] ✓ Found match with "${withSuffix}"!`);
-              break;
-            }
-          }
-        }
-
-        // FIFTH: Try without city filter (handles cases where city name doesn't match setlist.fm)
-        if (!setlistData && venueName && city) {
-          console.log(`[searchConcertsForPhoto] Trying without city filter (venue+date only)...`);
-          setlistData = await findSetlistWithAllCombinations({
-            venueName: venueName,
-            concertDate: localDate || undefined,
-            city: undefined, // Remove city filter
-            latitude: latitude || undefined,
-            longitude: longitude || undefined,
-          });
-          if (setlistData) {
-            console.log(`[searchConcertsForPhoto] ✓ Found match without city filter!`);
-          }
-        }
-
-        // SIXTH: Try core venue name (e.g., "The Mann Center" → "Mann")
+        // FOURTH: Try core venue name (e.g., "The Mann Center" → "Mann")
         if (!setlistData && venueName) {
           const { extractCoreVenueName } = await import("./setlistMatcher");
           const coreName = extractCoreVenueName(venueName);
@@ -987,7 +935,7 @@ export const appRouter = router({
           }
         }
 
-        // SEVENTH: Use OSM to find actual venue name near GPS coordinates
+        // FIFTH: Use OSM to find actual venue name near GPS coordinates
         if (!setlistData && latitude && longitude) {
           console.log(`[searchConcertsForPhoto] Trying OSM venue detection...`);
           try {
@@ -1039,15 +987,14 @@ export const appRouter = router({
           console.log(`  Tried:`);
           console.log(`    1. Original venue name: "${venueName}"`);
           console.log(`    2. Alt name (if exists in DB)`);
-          console.log(`    3. Simplified name (removed suffixes)`);
-          console.log(`    4. Common venue suffixes (Amphitheatre, Lounge, etc.)`);
-          console.log(`    5. Without city filter`);
-          console.log(`    6. Core venue name (e.g., "The Mann Center" → "Mann")`);
-          console.log(`    7. OSM-detected venue names`);
+          console.log(`    3. Simplified name (removed "at the" suffixes)`);
+          console.log(`    4. Core venue name (e.g., "The Mann Center" → "Mann")`);
+          console.log(`    5. OSM-detected venue names (GPS-based)`);
           console.log(`  Possible reasons:`);
           console.log(`    - Concert not in Setlist.fm database`);
           console.log(`    - Venue name significantly different from Setlist.fm`);
           console.log(`    - Wrong date selected`);
+          console.log(`    - Hit API rate limit (try again in 1 minute)`);
           return { found: false, suggestions: [], concertCreated: false };
         }
 
