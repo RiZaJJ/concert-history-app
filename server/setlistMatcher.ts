@@ -36,8 +36,9 @@ export function extractCoreVenueName(venueName: string): string {
   }
 
   // If we have multiple words, try to find the most distinctive one
-  // Skip common words like "The", numbers, sponsors
-  const commonWords = new Set(['the', 'at', 'of', 'and', 'in', 'td', 'bank', 'center', 'centre']);
+  // Skip common words like "The", numbers, sponsors, and generic venue words
+  const commonWords = new Set(['the', 'at', 'of', 'and', 'in', 'td', 'bank', 'center', 'centre',
+                                'venue', 'lounge', 'club', 'bar', 'room', 'house', 'hall']);
   const significantWords = words.filter(w => !commonWords.has(w.toLowerCase()) && !/^\d+$/.test(w));
 
   if (significantWords.length > 0) {
