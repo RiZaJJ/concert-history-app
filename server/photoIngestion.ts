@@ -8,6 +8,7 @@ import {
 } from "./integrations";
 import * as db from "./db";
 import { notifyOwner } from "./_core/notification";
+import { isFuzzyVenueMatch } from "./fuzzyMatch";
 import { initScanProgress, updateScanProgress, completeScanProgress, clearScanProgress, saveLastScanResult } from "./scanProgress";
 
 interface EXIFData { takenAt?: Date; latitude?: string; longitude?: string; }
@@ -227,13 +228,47 @@ async function autoDetectConcert(
     // Find or create venue
     let venue = await db.findVenueByNameAndCity(venueName, cityName);
     if (!venue) {
+      // IMPORTANT: Do NOT use photo's GPS coordinates for venue creation!
+      // The photo GPS is where the photo was taken, not necessarily the venue's exact location
+      // Instead, look up the venue's actual GPS coordinates from OSM
+      let venueLatitude: string | null = null;
+      let venueLongitude: string | null = null;
+
+      try {
+        // Try to get accurate venue coordinates from OSM
+        const { findNearbyVenue } = await import("./integrations");
+        console.log(`[Venue Creation] Looking up GPS for "${venueName}" in ${cityName}`);
+
+        // Use photo GPS as a rough area, but verify venue location
+        const osmVenue = await findNearbyVenue(latitude, longitude, cityName);
+
+        if (osmVenue && isFuzzyVenueMatch(venueName, osmVenue.name, 70)) {
+          // Found matching OSM venue - use its coordinates
+          const { findVenueByNameInOSM } = await import("./osmVenueDetection");
+          const venueDetails = await findVenueByNameInOSM(latitude, longitude, osmVenue.name);
+
+          if (venueDetails) {
+            venueLatitude = venueDetails.lat;
+            venueLongitude = venueDetails.lon;
+            console.log(`[Venue Creation] ✓ Found OSM coordinates for "${venueName}": ${venueLatitude}, ${venueLongitude}`);
+          }
+        }
+      } catch (error) {
+        console.log(`[Venue Creation] Could not look up venue GPS: ${error}`);
+      }
+
+      // Create venue (with or without GPS)
       venue = await db.createVenue({
         name: venueName,
         city: cityName,
         country: countryCode || "Unknown",
-        latitude,
-        longitude,
+        latitude: venueLatitude,
+        longitude: venueLongitude,
       });
+
+      if (!venueLatitude) {
+        console.log(`[Venue Creation] ⚠️  Created venue "${venueName}" WITHOUT GPS coordinates (will need manual update later)`);
+      }
     }
 
     // Check if concert already exists for this user, venue, and date
