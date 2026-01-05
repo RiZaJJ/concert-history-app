@@ -380,7 +380,7 @@ export async function searchSetlistsByDateAndLocation(
     if (venueName) {
       console.log(`    - Fuzzy venue name matching (70% threshold)`);
 
-      const filteredSetlists = (response.data.setlist || []).filter((setlist: any) => {
+      let filteredSetlists = (response.data.setlist || []).filter((setlist: any) => {
         if (!setlist.venue?.name) {
           return false;
         }
@@ -545,7 +545,7 @@ export async function searchSetlistsByDateAndCity(
 
     // If venue name provided, filter by fuzzy venue matching
     if (venueName && setlists.length > 0) {
-      const matchingSetlists = setlists.filter((setlist: any) => {
+      let matchingSetlists = setlists.filter((setlist: any) => {
         const setlistVenueName = setlist.venue?.name;
         if (!setlistVenueName) {
           console.log(`[Venue Filter] Skipping setlist - no venue name`);

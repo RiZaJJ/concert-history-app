@@ -90,6 +90,21 @@ export function isFuzzyVenueMatch(name1: string, name2: string, threshold: numbe
   // Exact match
   if (name1.toLowerCase() === name2.toLowerCase()) return true;
 
+  // IMPORTANT: Check substring match BEFORE normalization
+  // This catches cases like "Mann" vs "TD Pavilion at the Mann"
+  // Normalization would remove "Mann" (everything after "at the")
+  const lower1 = name1.toLowerCase().trim();
+  const lower2 = name2.toLowerCase().trim();
+
+  if (lower1.length >= 4 && lower2.includes(lower1)) {
+    console.log(`[Fuzzy Match] "${name1}" is substring of "${name2}" (before normalization)`);
+    return true;
+  }
+  if (lower2.length >= 4 && lower1.includes(lower2)) {
+    console.log(`[Fuzzy Match] "${name2}" is substring of "${name1}" (before normalization)`);
+    return true;
+  }
+
   // Normalize and compare
   const normalized1 = normalizeVenueName(name1);
   const normalized2 = normalizeVenueName(name2);
