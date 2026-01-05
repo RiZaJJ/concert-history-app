@@ -125,6 +125,33 @@ export function isFuzzyVenueMatch(name1: string, name2: string, threshold: numbe
     return true;
   }
 
+  // IMPORTANT: Before checking string similarity, verify at least ONE significant word matches
+  // This prevents "The Mann Center Lounge" from matching "DNA Lounge" (73% similar but no real overlap)
+  const words1 = normalized1.split(/\s+/).filter(w => w.length > 2);
+  const words2 = normalized2.split(/\s+/).filter(w => w.length > 2);
+
+  // Common venue words that don't count as significant
+  const commonWords = new Set(['the', 'and', 'lounge', 'center', 'centre', 'hall', 'theater', 'theatre',
+                                'amphitheatre', 'amphitheater', 'arena', 'stadium', 'ballroom', 'club',
+                                'bar', 'cafe', 'room', 'house', 'park']);
+
+  const significantWords1 = words1.filter(w => !commonWords.has(w.toLowerCase()));
+  const significantWords2 = words2.filter(w => !commonWords.has(w.toLowerCase()));
+
+  // Check if at least one significant word exists in both
+  const hasCommonWord = significantWords1.some(w1 =>
+    significantWords2.some(w2 =>
+      w1.includes(w2) || w2.includes(w1) || stringSimilarity(w1, w2) >= 80
+    )
+  );
+
+  if (!hasCommonWord && significantWords1.length > 0 && significantWords2.length > 0) {
+    console.log(`[Fuzzy Match] "${name1}" vs "${name2}": NO significant word overlap - rejecting`);
+    console.log(`  Significant words in "${name1}": ${significantWords1.join(', ')}`);
+    console.log(`  Significant words in "${name2}": ${significantWords2.join(', ')}`);
+    return false;
+  }
+
   // Calculate similarity score
   const similarity = stringSimilarity(normalized1, normalized2);
 
