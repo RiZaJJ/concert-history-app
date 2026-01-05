@@ -381,10 +381,20 @@ export const appRouter = router({
 
         // Move each photo back to unmatched_photos
         for (const photo of photos) {
+          // Extract driveFileId from sourceUrl
+          // Format: https://drive.google.com/uc?export=view&id=FILE_ID
+          let driveFileId = `photo_${photo.id}`; // fallback
+          if (photo.sourceUrl && photo.sourceUrl.includes('id=')) {
+            const match = photo.sourceUrl.match(/id=([^&]+)/);
+            if (match) driveFileId = match[1];
+          }
+
           await db.createUnmatchedPhoto({
             userId: ctx.user.id,
-            driveFileId: photo.driveFileId || `photo_${photo.id}`,
-            fileName: `photo_${photo.id}.jpg`, // We don't have the original filename
+            driveFileId,
+            fileName: photo.filename || `photo_${photo.id}.jpg`,
+            mimeType: photo.mimeType || 'image/jpeg',
+            sourceUrl: photo.sourceUrl,
             takenAt: photo.takenAt || new Date(),
             latitude: photo.latitude?.toString(),
             longitude: photo.longitude?.toString(),
